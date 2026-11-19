@@ -4,6 +4,9 @@ on:
   release:
     types: [created]
 
+# Nothing by default; the release job below is granted exactly what it needs.
+permissions: {}
+
 jobs:
   release:
     strategy:

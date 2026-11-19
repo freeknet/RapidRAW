@@ -3,6 +3,15 @@ name: CI Build
 on:
   pull_request:
 
+# A newer push to the same PR makes an older build irrelevant.
+concurrency:
+  group: pr-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# PR builds only produce workflow artifacts; they never write to the repo.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
