@@ -142,13 +142,13 @@ function DetailsPanel({
               onPointerDown={() => setEditor(canvasToolState({ activeCenterMarker: 'centre' }))}
             >
               <Slider
-                resetKey="centré"
+                resetKey="centre"
                 label={t('adjustments.details.centre')}
                 max={100}
                 min={-100}
-                onChange={(e: any) => handleAdjustmentChange(DetailsAdjustment.Centré, e.target.value)}
+                onChange={(e: any) => handleAdjustmentChange(DetailsAdjustment.Centre, e.target.value)}
                 step={1}
-                value={adjustments.centré}
+                value={adjustments.centre}
                 onDragStateChange={onDragStateChange}
               />
             </div>
