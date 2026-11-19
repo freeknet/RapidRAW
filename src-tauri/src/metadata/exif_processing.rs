@@ -782,12 +782,62 @@ pub fn get_creation_date_from_bytes(path_hint: &str, file_bytes: &[u8]) -> DateT
     Utc::now()
 }
 
+/// EXIF fields the user can edit in RapidRAW. Their sidecar values win over the file.
+const USER_EDITABLE_EXIF: [&str; 4] = ["ImageDescription", "Artist", "Copyright", "UserComment"];
+
+/// Whether the image file was changed after its `.rrdata` sidecar was last
+/// written, so the EXIF copy kept in the sidecar may be outdated (for example
+/// when lens data was added with ExifTool after the image was edited).
+pub fn sidecar_exif_is_stale(image_path: &Path) -> bool {
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    match (
+        modified(image_path),
+        modified(&get_primary_sidecar_path(image_path)),
+    ) {
+        (Some(image), Some(sidecar)) => image > sidecar,
+        _ => false,
+    }
+}
+
+fn merge_refreshed_exif(
+    mut fresh: HashMap<String, String>,
+    stored: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    for key in USER_EDITABLE_EXIF {
+        if let Some(value) = stored.get(key) {
+            fresh.insert(key.to_string(), value.clone());
+        }
+    }
+    fresh
+}
+
+/// Reads the EXIF of the image file again, keeping the fields the user edited.
+pub fn refresh_stale_exif(
+    image_path: &Path,
+    stored: &HashMap<String, String>,
+) -> Option<HashMap<String, String>> {
+    if file_ops::is_cloud_placeholder(image_path) {
+        return None;
+    }
+    let path_str = image_path.to_string_lossy();
+    let fresh = match file_ops::read_file_mapped(image_path) {
+        Ok(mmap) => read_exif_data_from_bytes(&path_str, &mmap),
+        Err(_) => read_exif_data_from_bytes(&path_str, &fs::read(image_path).ok()?),
+    };
+    (!fresh.is_empty()).then(|| merge_refreshed_exif(fresh, stored))
+}
+
 pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>> {
     let primary = get_primary_sidecar_path(image_path);
 
     if primary.exists() {
         let metadata = load_primary_metadata(image_path);
         if let Some(exif) = metadata.exif {
+            if sidecar_exif_is_stale(image_path)
+                && let Some(fresh) = refresh_stale_exif(image_path, &exif)
+            {
+                return Some(fresh);
+            }
             return Some(exif);
         }
     }
@@ -959,6 +1009,22 @@ mod tests {
         bytes.extend_from_slice(&u32::from(rating).to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
         bytes
+    }
+
+    #[test]
+    fn refreshed_exif_keeps_user_edits_only() {
+        let fresh = HashMap::from([
+            ("LensModel".to_string(), "Manual 50mm".to_string()),
+            ("Artist".to_string(), "Camera Owner".to_string()),
+        ]);
+        let stored = HashMap::from([
+            ("Artist".to_string(), "Edited".to_string()),
+            ("GPSLatitude".to_string(), "1 deg".to_string()),
+        ]);
+        let merged = merge_refreshed_exif(fresh, &stored);
+        assert_eq!(merged["LensModel"], "Manual 50mm");
+        assert_eq!(merged["Artist"], "Edited");
+        assert!(!merged.contains_key("GPSLatitude"));
     }
 
     #[test]

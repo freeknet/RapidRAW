@@ -306,7 +306,14 @@ pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
 }
 
 pub fn fill_missing_exif(meta: &mut ImageMetadata, source_path: &Path) {
-    if meta.exif.is_some() {
+    if let Some(stored) = &meta.exif {
+        // The file was changed after the sidecar was written, take over the new EXIF.
+        if crate::metadata::exif_processing::sidecar_exif_is_stale(source_path)
+            && let Some(fresh) =
+                crate::metadata::exif_processing::refresh_stale_exif(source_path, stored)
+        {
+            meta.exif = Some(fresh);
+        }
         return;
     }
 
