@@ -1,0 +1,56 @@
+version: 2
+updates:
+  # Crate updates as reviewable PRs rather than the dependency tree drifting
+  # on its own. The cargo-deny job in lint.yml runs against each one.
+  #
+  # Only patch bumps are grouped. Dependabot classifies an update by the
+  # literal version segments, so a 0.x minor bump (wgpu 29 -> 30 is a major,
+  # but image-hdr 0.6 -> 0.7 is reported as a minor) reaches it as
+  # `semver-minor`, while under cargo a 0.x minor bump is exactly the breaking
+  # one. Grouping minors would hand over one PR that quietly carries breaking
+  # API changes for several crates. Anything above patch arrives on its own so
+  # it can be read, built and reverted by itself.
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-patch:
+        applies-to: version-updates
+        update-types:
+          - patch
+
+  # Frontend dependencies, same policy: patch releases batched, everything
+  # else one PR per package.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-patch:
+        applies-to: version-updates
+        update-types:
+          - patch
+
+  # Actions are pinned to full commit SHAs (see .github/workflows), so a
+  # Dependabot PR is the deliberate, diff-visible way a pin moves: it rewrites
+  # the SHA and the trailing version comment together. tauri-apps/tauri-action
+  # is pinned to a dev-branch commit that belongs to no tag, so Dependabot
+  # cannot move it; that pin moves by hand. The Rust toolchain version in the
+  # workflows is not an action version either and moves with
+  # src-tauri/rust-toolchain.toml.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
