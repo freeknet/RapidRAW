@@ -9,7 +9,7 @@ use crate::masks::generation::{
 };
 use crate::render::adjustment_utils::hydrate_adjustments;
 use crate::render::cache_utils::calculate_transform_hash;
-use crate::render::geometry::{get_geometry_params_from_json, is_geometry_identity};
+use crate::render::geometry::{crop_rect, get_geometry_params_from_json, is_geometry_identity};
 use crate::render::gpu::context::get_or_init_gpu_context;
 use crate::render::gpu::display::DisplayLayer;
 use crate::render::gpu::output::process_and_get_dynamic_image;
@@ -270,6 +270,28 @@ pub async fn apply_adjustments(
     }
 }
 
+/// The crop rectangle as the creative vignette expects it in an uncropped render:
+/// normalized center and size in the rotated frame, plus the rotation as cos and sin.
+fn vignette_frame(frame: &Frame, oriented_size: (u32, u32)) -> Option<([f32; 4], f32, f32)> {
+    let (width, height) = oriented_size;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let (x, y, w, h) = crop_rect(frame.crop.as_ref()?, oriented_size)?;
+    let (w_f, h_f) = (width as f32, height as f32);
+    let (sin, cos) = (frame.rotation * std::f32::consts::PI / 180.0).sin_cos();
+    Some((
+        [
+            (x as f32 + w as f32 / 2.0) / w_f,
+            (y as f32 + h as f32 / 2.0) / h_f,
+            w as f32 / w_f,
+            h as f32 / h_f,
+        ],
+        cos,
+        sin,
+    ))
+}
+
 #[tauri::command]
 pub async fn generate_uncropped_preview(
     js_adjustments: serde_json::Value,
@@ -373,6 +395,18 @@ pub async fn generate_uncropped_preview(
         let mut uncropped_adjustments =
             get_all_adjustments_from_json(&adjustments_clone, is_raw, loaded_image.as_shot, render);
         uncropped_adjustments.global.show_clipping = 0;
+        let full_frame = Frame::from_adjustments(&adjustments_clone);
+        let (full_w, full_h) = (loaded_image.image.width(), loaded_image.image.height());
+        let oriented = if full_frame.orientation % 2 == 1 {
+            (full_h, full_w)
+        } else {
+            (full_w, full_h)
+        };
+        if let Some((rect, cos, sin)) = vignette_frame(&full_frame, oriented) {
+            uncropped_adjustments.global.vignette_frame = rect;
+            uncropped_adjustments.global.vignette_frame_cos = cos;
+            uncropped_adjustments.global.vignette_frame_sin = sin;
+        }
         let lut_path = adjustments_clone["lutPath"].as_str();
         let lut = lut_path
             .and_then(|p| crate::adjustments::lut_processing::get_or_load_lut(&state, p).ok());
@@ -519,4 +553,45 @@ pub async fn generate_preview_for_path(
     })
     .await
     .map_err(|e| format!("Task execution failed: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::geometry::Crop;
+
+    #[test]
+    fn vignette_frame_is_the_normalized_crop_center_and_size() {
+        let frame = Frame {
+            rotation: 90.0,
+            crop: Some(Crop {
+                x: 100.0,
+                y: 50.0,
+                width: 400.0,
+                height: 300.0,
+            }),
+            ..Default::default()
+        };
+        let (rect, cos, sin) = vignette_frame(&frame, (1000, 500)).unwrap();
+        let expected = [0.3, 0.4, 0.4, 0.6];
+        for (value, expected) in rect.iter().zip(expected) {
+            assert!((value - expected).abs() < 1e-6, "{rect:?}");
+        }
+        assert!(cos.abs() < 1e-6 && (sin - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn no_crop_keeps_the_vignette_on_the_whole_image() {
+        assert!(vignette_frame(&Frame::default(), (1000, 500)).is_none());
+        let crop = Frame {
+            crop: Some(Crop {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            }),
+            ..Default::default()
+        };
+        assert!(vignette_frame(&crop, (0, 0)).is_none());
+    }
 }

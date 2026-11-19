@@ -157,8 +157,8 @@ pub struct GlobalAdjustments {
     pub color_grading_global: ColorGradeSettings,
     pub color_grading_blending: f32,
     pub color_grading_balance: f32,
-    _pad2: f32,
-    _pad3: f32,
+    pub vignette_frame_cos: f32,
+    pub vignette_frame_sin: f32,
 
     pub color_calibration: ColorCalibrationSettings,
 
@@ -171,10 +171,9 @@ pub struct GlobalAdjustments {
     pub red_curve_count: u32,
     pub green_curve_count: u32,
     pub blue_curve_count: u32,
-    _pad_end1: f32,
-    _pad_end2: f32,
-    _pad_end3: f32,
-    _pad_end4: f32,
+    /// Crop rectangle the creative vignette is relative to, as normalized center and
+    /// size in the rotated frame of the input. Zero size means the whole input.
+    pub vignette_frame: [f32; 4],
 
     pub glow_amount: f32,
     pub halation_amount: f32,
@@ -825,8 +824,8 @@ fn get_global_adjustments_from_json(
         } else {
             0.0
         },
-        _pad2: 0.0,
-        _pad3: 0.0,
+        vignette_frame_cos: 1.0,
+        vignette_frame_sin: 0.0,
 
         color_calibration: color_cal_settings,
 
@@ -843,10 +842,7 @@ fn get_global_adjustments_from_json(
         red_curve_count: red_points.len() as u32,
         green_curve_count: green_points.len() as u32,
         blue_curve_count: blue_points.len() as u32,
-        _pad_end1: 0.0,
-        _pad_end2: 0.0,
-        _pad_end3: 0.0,
-        _pad_end4: 0.0,
+        vignette_frame: [0.0; 4],
 
         glow_amount: get_val("creative", "glowAmount", SCALES.glow, None),
         halation_amount: get_val("creative", "halationAmount", SCALES.halation, None),
