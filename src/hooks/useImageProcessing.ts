@@ -327,7 +327,9 @@ export function useImageProcessing(
                 return { uncroppedAdjustedPreviewUrl: url };
               });
             })
-            .catch(console.error);
+            .catch((err) => {
+              if (err !== 'Superseded') console.error(err);
+            });
         },
         30,
         { leading: true, trailing: true },

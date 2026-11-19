@@ -9,6 +9,7 @@ pub mod geometry;
 pub mod gpu;
 pub mod hdr;
 pub mod image_processing;
+pub mod latest_wins;
 pub mod options;
 pub mod preview;
 pub mod preview_jpeg;

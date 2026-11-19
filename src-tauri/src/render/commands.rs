@@ -15,6 +15,7 @@ use crate::render::gpu::display::DisplayLayer;
 use crate::render::gpu::output::process_and_get_dynamic_image;
 use crate::render::gpu::processor::RenderRequest;
 use crate::render::image_processing::downscale_f32_image;
+use crate::render::latest_wins::LatestWins;
 use crate::render::options::{resolve_render_options, resolve_render_options_from_handle};
 use crate::render::preview::{
     EditorRender, compute_patched, get_or_compute_stage, patched_cache_key,
@@ -292,6 +293,11 @@ fn vignette_frame(frame: &Frame, oriented_size: (u32, u32)) -> Option<([f32; 4],
     ))
 }
 
+// the crop tool asks for a new uncropped preview on every drag step; superseded
+// requests skip their render instead of queueing up behind the running one
+static UNCROPPED_PREVIEWS: LatestWins = LatestWins::new();
+const SUPERSEDED_PREVIEW: &str = "Superseded";
+
 #[tauri::command]
 pub async fn generate_uncropped_preview(
     js_adjustments: serde_json::Value,
@@ -299,6 +305,7 @@ pub async fn generate_uncropped_preview(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Response, String> {
+    let ticket = UNCROPPED_PREVIEWS.ticket();
     let context = get_or_init_gpu_context(&state, &app_handle)?;
     let mut adjustments_clone = js_adjustments.clone();
     hydrate_adjustments(&state, &mut adjustments_clone);
@@ -311,139 +318,150 @@ pub async fn generate_uncropped_preview(
         .ok_or("No original image loaded")?;
 
     tokio::task::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let path = loaded_image.path.clone();
-        let is_raw = loaded_image.is_raw;
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
-        let target_dim =
-            target_resolution.unwrap_or_else(|| settings.editor_preview_resolution.unwrap_or(1920));
+        UNCROPPED_PREVIEWS
+            .run(&ticket, || {
+                let state = app_handle.state::<AppState>();
+                let path = loaded_image.path.clone();
+                let is_raw = loaded_image.is_raw;
+                let settings = load_settings(app_handle.clone()).unwrap_or_default();
+                let target_dim = target_resolution
+                    .unwrap_or_else(|| settings.editor_preview_resolution.unwrap_or(1920));
 
-        let patched_key = patched_cache_key(&path, &adjustments_clone);
+                let patched_key = patched_cache_key(&path, &adjustments_clone);
 
-        let mut hasher = DefaultHasher::new();
-        patched_key.hash(&mut hasher);
-        target_dim.hash(&mut hasher);
-        let source_key = hasher.finish();
+                let mut hasher = DefaultHasher::new();
+                patched_key.hash(&mut hasher);
+                target_dim.hash(&mut hasher);
+                let source_key = hasher.finish();
 
-        let cached_source = state
-            .uncropped_source_cache
-            .lock()
-            .unwrap()
-            .get(&source_key)
-            .cloned();
-        let source_image = match cached_source {
-            Some(cached) => cached,
-            None => {
-                let patched = get_or_compute_stage(&state.patched_cache, patched_key, || {
-                    compute_patched(&loaded_image, &adjustments_clone)
-                })?;
-                let downscaled = Arc::new(downscale_f32_image(&patched, target_dim, target_dim));
-                drop(patched);
+                let cached_source = state
+                    .uncropped_source_cache
+                    .lock()
+                    .unwrap()
+                    .get(&source_key)
+                    .cloned();
+                let source_image = match cached_source {
+                    Some(cached) => cached,
+                    None => {
+                        let patched =
+                            get_or_compute_stage(&state.patched_cache, patched_key, || {
+                                compute_patched(&loaded_image, &adjustments_clone)
+                            })?;
+                        let downscaled =
+                            Arc::new(downscale_f32_image(&patched, target_dim, target_dim));
+                        drop(patched);
 
-                let mut cache = state.uncropped_source_cache.lock().unwrap();
-                if cache.len() > 2 {
-                    cache.clear();
-                }
-                cache.insert(source_key, Arc::clone(&downscaled));
-                downscaled
-            }
-        };
+                        let mut cache = state.uncropped_source_cache.lock().unwrap();
+                        if cache.len() > 2 {
+                            cache.clear();
+                        }
+                        cache.insert(source_key, Arc::clone(&downscaled));
+                        downscaled
+                    }
+                };
 
-        let scale_for_gpu = if loaded_image.image.width() > 0 {
-            source_image.width() as f32 / loaded_image.image.width() as f32
-        } else {
-            1.0
-        };
+                let scale_for_gpu = if loaded_image.image.width() > 0 {
+                    source_image.width() as f32 / loaded_image.image.width() as f32
+                } else {
+                    1.0
+                };
 
-        let geometry = get_geometry_params_from_json(&path, &adjustments_clone);
-        let has_geometry = !is_geometry_identity(&geometry);
-        let source = RenderSource::new(
-            &source_image,
-            source_key,
-            &adjustments_clone,
-            SourceTransform {
-                warp: has_geometry.then_some(geometry),
-                effects: true,
-                frame: Frame {
-                    rotation: 0.0,
-                    crop: None,
-                    ..Frame::from_adjustments(&adjustments_clone)
-                },
-                ..Default::default()
-            },
-        );
-        let (preview_width, preview_height) = source.size();
-
-        let mask_definitions: Vec<MaskDefinition> = adjustments_clone
-            .get("masks")
-            .and_then(|m| serde_json::from_value(m.clone()).ok())
-            .unwrap_or_default();
-
-        let mask_bitmaps = get_cached_or_generate_masks(
-            &state,
-            &path,
-            &mask_definitions,
-            preview_width,
-            preview_height,
-            scale_for_gpu,
-            (0.0, 0.0),
-            &adjustments_clone,
-        )
-        .bitmaps;
-
-        let render = resolve_render_options_from_handle(&app_handle, is_raw);
-        let mut uncropped_adjustments =
-            get_all_adjustments_from_json(&adjustments_clone, is_raw, loaded_image.as_shot, render);
-        uncropped_adjustments.global.show_clipping = 0;
-        let full_frame = Frame::from_adjustments(&adjustments_clone);
-        let (full_w, full_h) = (loaded_image.image.width(), loaded_image.image.height());
-        let oriented = if full_frame.orientation % 2 == 1 {
-            (full_h, full_w)
-        } else {
-            (full_w, full_h)
-        };
-        if let Some((rect, cos, sin)) = vignette_frame(&full_frame, oriented) {
-            uncropped_adjustments.global.vignette_frame = rect;
-            uncropped_adjustments.global.vignette_frame_cos = cos;
-            uncropped_adjustments.global.vignette_frame_sin = sin;
-        }
-        let lut_path = adjustments_clone["lutPath"].as_str();
-        let lut = lut_path
-            .and_then(|p| crate::adjustments::lut_processing::get_or_load_lut(&state, p).ok());
-
-        if let Ok(processed_image) = process_and_get_dynamic_image(
-            &context,
-            &state,
-            &source,
-            RenderRequest {
-                adjustments: uncropped_adjustments,
-                mask_bitmaps: &mask_bitmaps,
-                mask_cache_key: None,
-                lut,
-                roi: None,
-                hsl_probe: false,
-                motion_blur: crate::effects::motion_blur::MotionBlurs::new(
-                    &path,
+                let geometry = get_geometry_params_from_json(&path, &adjustments_clone);
+                let has_geometry = !is_geometry_identity(&geometry);
+                let source = RenderSource::new(
+                    &source_image,
+                    source_key,
                     &adjustments_clone,
-                    (preview_width, preview_height),
+                    SourceTransform {
+                        warp: has_geometry.then_some(geometry),
+                        effects: true,
+                        frame: Frame {
+                            rotation: 0.0,
+                            crop: None,
+                            ..Frame::from_adjustments(&adjustments_clone)
+                        },
+                        ..Default::default()
+                    },
+                );
+                let (preview_width, preview_height) = source.size();
+
+                let mask_definitions: Vec<MaskDefinition> = adjustments_clone
+                    .get("masks")
+                    .and_then(|m| serde_json::from_value(m.clone()).ok())
+                    .unwrap_or_default();
+
+                let mask_bitmaps = get_cached_or_generate_masks(
+                    &state,
+                    &path,
+                    &mask_definitions,
+                    preview_width,
+                    preview_height,
+                    scale_for_gpu,
                     (0.0, 0.0),
-                    preview_width.max(preview_height) as f32,
-                ),
-            },
-            "generate_uncropped_preview",
-        ) {
-            let (width, height) = processed_image.dimensions();
-            let rgb_pixels = processed_image.to_rgb8().into_vec();
+                    &adjustments_clone,
+                )
+                .bitmaps;
 
-            if let Ok(bytes) = Encoder::new(Preset::BaselineFastest)
-                .quality(80)
-                .encode_rgb(&rgb_pixels, width, height)
-            {
-                return Ok(Response::new(bytes));
-            }
-        }
+                let render = resolve_render_options_from_handle(&app_handle, is_raw);
+                let mut uncropped_adjustments = get_all_adjustments_from_json(
+                    &adjustments_clone,
+                    is_raw,
+                    loaded_image.as_shot,
+                    render,
+                );
+                uncropped_adjustments.global.show_clipping = 0;
+                let full_frame = Frame::from_adjustments(&adjustments_clone);
+                let (full_w, full_h) = (loaded_image.image.width(), loaded_image.image.height());
+                let oriented = if full_frame.orientation % 2 == 1 {
+                    (full_h, full_w)
+                } else {
+                    (full_w, full_h)
+                };
+                if let Some((rect, cos, sin)) = vignette_frame(&full_frame, oriented) {
+                    uncropped_adjustments.global.vignette_frame = rect;
+                    uncropped_adjustments.global.vignette_frame_cos = cos;
+                    uncropped_adjustments.global.vignette_frame_sin = sin;
+                }
+                let lut_path = adjustments_clone["lutPath"].as_str();
+                let lut = lut_path.and_then(|p| {
+                    crate::adjustments::lut_processing::get_or_load_lut(&state, p).ok()
+                });
 
-        Err("Failed to process uncropped preview".to_string())
+                if let Ok(processed_image) = process_and_get_dynamic_image(
+                    &context,
+                    &state,
+                    &source,
+                    RenderRequest {
+                        adjustments: uncropped_adjustments,
+                        mask_bitmaps: &mask_bitmaps,
+                        mask_cache_key: None,
+                        lut,
+                        roi: None,
+                        hsl_probe: false,
+                        motion_blur: crate::effects::motion_blur::MotionBlurs::new(
+                            &path,
+                            &adjustments_clone,
+                            (preview_width, preview_height),
+                            (0.0, 0.0),
+                            preview_width.max(preview_height) as f32,
+                        ),
+                    },
+                    "generate_uncropped_preview",
+                ) {
+                    let (width, height) = processed_image.dimensions();
+                    let rgb_pixels = processed_image.to_rgb8().into_vec();
+
+                    if let Ok(bytes) = Encoder::new(Preset::BaselineFastest)
+                        .quality(80)
+                        .encode_rgb(&rgb_pixels, width, height)
+                    {
+                        return Ok(Response::new(bytes));
+                    }
+                }
+
+                Err("Failed to process uncropped preview".to_string())
+            })
+            .unwrap_or_else(|| Err(SUPERSEDED_PREVIEW.to_string()))
     })
     .await
     .map_err(|e| format!("Task execution failed: {}", e))?

@@ -322,15 +322,26 @@ fn update_sidecars_and_thumbnails(
 }
 
 const RAM_PER_BATCH_DECODE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_BATCH_WORKERS: usize = 4;
+const THREADS_PER_BATCH_WORKER: usize = 4;
+
+// each decode already fans out over the global rayon pool, so a few outer workers
+// saturate the cpu; one worker per hardware thread only oversubscribes it and the ram
+fn batch_worker_count(threads: usize, available_memory: u64) -> usize {
+    let ram_limit = (available_memory / RAM_PER_BATCH_DECODE_BYTES).max(1) as usize;
+    threads
+        .div_ceil(THREADS_PER_BATCH_WORKER)
+        .min(MAX_BATCH_WORKERS)
+        .min(ram_limit)
+        .max(1)
+}
 
 pub fn run_batch_workers<T: Send>(items: impl Iterator<Item = T> + Send, work: impl Fn(T) + Sync) {
-    static WORKERS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let workers = *WORKERS.get_or_init(|| {
+    let workers = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
-        let ram_limit = (sys.total_memory() / RAM_PER_BATCH_DECODE_BYTES).max(1) as usize;
-        rayon::current_num_threads().min(ram_limit).max(1)
-    });
+        batch_worker_count(rayon::current_num_threads(), sys.available_memory())
+    };
 
     let items = std::sync::Mutex::new(items);
     std::thread::scope(|scope| {
@@ -825,5 +836,31 @@ mod tests {
             parse_sidecar_name(name),
             Some(("IMG_0001.CR3", Some("a1b2c3")))
         );
+    }
+}
+
+#[cfg(test)]
+mod batch_worker_tests {
+    use super::*;
+
+    const GB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn many_threads_do_not_spawn_one_decode_per_thread() {
+        assert_eq!(batch_worker_count(32, 64 * GB), MAX_BATCH_WORKERS);
+        assert_eq!(batch_worker_count(8, 64 * GB), 2);
+    }
+
+    #[test]
+    fn low_available_memory_limits_workers() {
+        assert_eq!(batch_worker_count(32, 3 * GB), 1);
+        assert_eq!(batch_worker_count(32, 5 * GB), 2);
+        assert_eq!(batch_worker_count(32, 0), 1);
+    }
+
+    #[test]
+    fn always_at_least_one_worker() {
+        assert_eq!(batch_worker_count(0, 0), 1);
+        assert_eq!(batch_worker_count(1, 64 * GB), 1);
     }
 }
