@@ -4,7 +4,7 @@ use crate::decode::formats::is_supported_image_file;
 use crate::library::file_ops::{is_cloud_placeholder, read_file_mapped};
 use crate::library::sidecars::{parse_sidecar_name, parse_virtual_path};
 use crate::metadata::sidecar::{ImageFlag, ImageMetadata, is_image_edited};
-use crate::metadata::xmp::{resolve_xmp_path, sync_metadata_from_xmp};
+use crate::metadata::xmp::{backfill_missing_xmp, resolve_xmp_path, sync_metadata_from_xmp};
 use crate::render::options::resolve_tonemapper_override;
 use anyhow::Result;
 use rayon::prelude::*;
@@ -55,6 +55,9 @@ fn resolve_image_metadata(
         let _ = crate::metadata::sidecar::update_sidecar(sidecar_path, image_path, |current| {
             sync_metadata_from_xmp(image_path, sidecar_path, current);
         });
+    }
+    if enable_xmp_sync && settings.create_xmp_if_missing.unwrap_or(false) {
+        backfill_missing_xmp(image_path, sidecar_path, &metadata);
     }
 
     let is_raw = crate::decode::formats::is_raw_file(image_path);
