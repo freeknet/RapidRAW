@@ -184,11 +184,12 @@ fn process_preview_job(
     let unscaled_crop_offset = preview.unscaled_crop_offset;
 
     let pixel_roi = if is_interactive {
-        roi.map(|(nx, ny, nw, nh)| crate::render::gpu::processor::Roi {
-            x: (nx * preview_width as f32).round() as u32,
-            y: (ny * preview_height as f32).round() as u32,
-            width: (nw * preview_width as f32).round() as u32,
-            height: (nh * preview_height as f32).round() as u32,
+        roi.and_then(|normalized| {
+            crate::render::gpu::processor::Roi::from_normalized(
+                normalized,
+                preview_width,
+                preview_height,
+            )
         })
     } else {
         None

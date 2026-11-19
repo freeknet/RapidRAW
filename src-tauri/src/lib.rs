@@ -114,7 +114,10 @@ fn force_c_numeric_locale() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
-    force_c_numeric_locale();
+    {
+        force_c_numeric_locale();
+        platform::nvidia_webkit::apply();
+    }
 
     let _ = rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
@@ -303,6 +306,15 @@ pub fn run() {
                     && backend != "auto" {
                         std::env::set_var("WGPU_BACKEND", backend);
                     }
+
+                #[cfg(target_os = "windows")]
+                if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none()
+                    && let Some(args) = render::gpu::context::webview2_browser_args(
+                        settings.gpu_power_preference.as_deref(),
+                    )
+                {
+                    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args);
+                }
 
                 #[cfg(target_os = "linux")]
                 {

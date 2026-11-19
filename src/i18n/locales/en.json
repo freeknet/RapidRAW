@@ -2167,6 +2167,13 @@
         "metal": "Metal",
         "vulkan": "Vulkan"
       },
+      "gpuPreference": "Graphics Card",
+      "gpuPreferenceDesc": "Which GPU to use on computers with more than one. Choose 'Power saving' if the dedicated GPU is slow or crashes. Requires a restart.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "High performance",
+        "lowPower": "Power saving"
+      },
       "colorManagement": {
         "chooseProfile": "Choose Profile",
         "modeAuto": "Automatic (system profile)",

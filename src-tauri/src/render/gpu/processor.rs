@@ -24,6 +24,35 @@ pub struct Roi {
     pub height: u32,
 }
 
+impl Roi {
+    /// Pixel region covering a normalized `(x, y, width, height)` rectangle.
+    /// Rounding the origin and size separately could reach one pixel past the
+    /// image edge or collapse to zero pixels at high zoom, and either makes the
+    /// region copy fail validation so the frame never shows.
+    pub fn from_normalized(
+        (nx, ny, nw, nh): (f32, f32, f32, f32),
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        if width == 0 || height == 0 || ![nx, ny, nw, nh].iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        let span = |start: f32, size: f32, len: u32| {
+            let lo = ((start.max(0.0) * len as f32).floor() as u32).min(len - 1);
+            let hi = (((start + size.max(0.0)) * len as f32).ceil() as u32).clamp(lo + 1, len);
+            (lo, hi - lo)
+        };
+        let (x, roi_width) = span(nx, nw, width);
+        let (y, roi_height) = span(ny, nh, height);
+        Some(Roi {
+            x,
+            y,
+            width: roi_width,
+            height: roi_height,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RenderOutputPrecision {
     #[default]
@@ -56,6 +85,49 @@ pub struct RenderRequest<'a> {
     pub motion_blur: crate::effects::motion_blur::MotionBlurs,
 }
 
+/// Row pitch of a texture-to-buffer copy, which wgpu requires to be a
+/// multiple of 256 bytes.
+pub fn padded_bytes_per_row(width: u32, bytes_per_pixel: u32) -> u32 {
+    (width * bytes_per_pixel).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+}
+
+const READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const READBACK_POLL_STEP: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Waits for a submission for up to a minute in short steps. Some drivers
+/// (PowerVR on the Pixel 10 and 11) end a long wait after a few seconds and
+/// report a timeout, which failed every export that took longer than that.
+pub fn wait_for_submission(
+    device: &wgpu::Device,
+    submission: &wgpu::SubmissionIndex,
+) -> Result<(), wgpu::PollError> {
+    wait_in_steps(READBACK_TIMEOUT, READBACK_POLL_STEP, |timeout| {
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission.clone()),
+                timeout: Some(timeout),
+            })
+            .map(|_| ())
+    })
+}
+
+pub fn wait_in_steps(
+    total: std::time::Duration,
+    step: std::time::Duration,
+    mut wait: impl FnMut(std::time::Duration) -> Result<(), wgpu::PollError>,
+) -> Result<(), wgpu::PollError> {
+    let start = std::time::Instant::now();
+    loop {
+        let remaining = total.saturating_sub(start.elapsed());
+        match wait(remaining.min(step)) {
+            Err(wgpu::PollError::Timeout) if start.elapsed() < total => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            result => return result,
+        }
+    }
+}
+
 fn read_texture_data_roi(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -65,8 +137,7 @@ fn read_texture_data_roi(
     bytes_per_pixel: u32,
 ) -> Result<Vec<u8>, String> {
     let unpadded_bytes_per_row = bytes_per_pixel * size.width;
-    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+    let padded_bytes_per_row = padded_bytes_per_row(size.width, bytes_per_pixel);
     let output_buffer_size = (padded_bytes_per_row * size.height) as u64;
 
     let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -96,17 +167,13 @@ fn read_texture_data_roi(
         size,
     );
 
-    queue.submit(Some(encoder.finish()));
+    let submission = queue.submit(Some(encoder.finish()));
     let buffer_slice = output_buffer.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();
     buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = tx.send(result);
     });
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(std::time::Duration::from_secs(60)),
-        })
+    wait_for_submission(device, &submission)
         .map_err(|e| format!("Failed while polling mapped GPU buffer: {}", e))?;
     let map_result = rx
         .recv()
@@ -288,10 +355,7 @@ fn complete_analytics_readback(readback: AnalyticsReadback) {
             let _ = tx.send(result);
         });
 
-    if let Err(e) = readback.device.poll(wgpu::PollType::Wait {
-        submission_index: Some(readback.submission),
-        timeout: Some(std::time::Duration::from_secs(60)),
-    }) {
+    if let Err(e) = wait_for_submission(&readback.device, &readback.submission) {
         log::error!("Async analytics readback poll failed: {}", e);
         return;
     }
@@ -1823,4 +1887,85 @@ pub struct DisplayTextures {
     pub working_texture: wgpu::Texture,
     pub output_texture: wgpu::Texture,
     pub output_texture_view: wgpu::TextureView,
+}
+
+#[cfg(test)]
+mod readback_tests {
+    use super::{Roi, padded_bytes_per_row, wait_in_steps};
+    use std::time::Duration;
+
+    fn edges(roi: Roi) -> (u32, u32, u32, u32) {
+        (roi.x, roi.y, roi.x + roi.width, roi.y + roi.height)
+    }
+
+    #[test]
+    fn roi_stays_inside_the_image() {
+        let roi = Roi::from_normalized((0.5003, 0.25, 0.4999, 0.75), 1000, 600).unwrap();
+        assert_eq!(edges(roi), (500, 150, 1000, 600));
+        let roi = Roi::from_normalized((0.875, 0.875, 0.5, 0.5), 100, 100).unwrap();
+        assert_eq!(edges(roi), (87, 87, 100, 100));
+    }
+
+    #[test]
+    fn roi_never_collapses_to_zero_pixels() {
+        let roi = Roi::from_normalized((0.5, 0.5, 0.0001, 0.0), 960, 640).unwrap();
+        assert_eq!((roi.width, roi.height), (1, 1));
+        let roi = Roi::from_normalized((1.0, 1.0, 0.1, 0.1), 960, 640).unwrap();
+        assert_eq!(edges(roi), (959, 639, 960, 640));
+    }
+
+    #[test]
+    fn roi_rejects_empty_images_and_nan() {
+        assert!(Roi::from_normalized((0.0, 0.0, 1.0, 1.0), 0, 10).is_none());
+        assert!(Roi::from_normalized((f32::NAN, 0.0, 1.0, 1.0), 10, 10).is_none());
+    }
+
+    #[test]
+    fn rows_are_padded_to_the_copy_alignment() {
+        assert_eq!(padded_bytes_per_row(64, 4), 256);
+        assert_eq!(padded_bytes_per_row(65, 4), 512);
+        assert_eq!(padded_bytes_per_row(1, 8), 256);
+        assert_eq!(padded_bytes_per_row(6000, 4), 24064);
+        assert_eq!(padded_bytes_per_row(0, 4), 0);
+    }
+
+    #[test]
+    fn early_timeouts_are_retried_until_the_work_finishes() {
+        let mut calls = 0;
+        let result = wait_in_steps(Duration::from_secs(5), Duration::from_millis(10), |_| {
+            calls += 1;
+            if calls < 4 {
+                Err(wgpu::PollError::Timeout)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(calls, 4);
+    }
+
+    #[test]
+    fn gives_up_after_the_total_timeout() {
+        let result = wait_in_steps(
+            Duration::from_millis(20),
+            Duration::from_millis(5),
+            |step| {
+                assert!(step <= Duration::from_millis(5));
+                std::thread::sleep(step);
+                Err(wgpu::PollError::Timeout)
+            },
+        );
+        assert!(matches!(result, Err(wgpu::PollError::Timeout)));
+    }
+
+    #[test]
+    fn other_errors_are_returned_at_once() {
+        let mut calls = 0;
+        let result = wait_in_steps(Duration::from_secs(5), Duration::from_millis(10), |_| {
+            calls += 1;
+            Err(wgpu::PollError::WrongSubmissionIndex(2, 1))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
 }
