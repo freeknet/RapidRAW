@@ -1080,6 +1080,7 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         Some(settings) => settings,
         None => {
             let settings = read_settings_from_disk(&app_handle)?;
+            apply_saved_lenses(&settings);
             *settings_cache() = Some(settings.clone());
             settings
         }
@@ -1088,6 +1089,17 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         settings.use_wgpu_renderer = Some(false);
     }
     Ok(settings)
+}
+
+fn apply_saved_lenses(settings: &AppSettings) {
+    crate::adjustments::lens_correction::set_saved_lenses(
+        settings
+            .my_lenses
+            .iter()
+            .flatten()
+            .map(|lens| (lens.maker.clone(), lens.model.clone()))
+            .collect(),
+    );
 }
 
 fn read_settings_from_disk(app_handle: &AppHandle) -> Result<AppSettings, String> {
@@ -1200,6 +1212,7 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
     crate::library::file_ops::write_file_atomic(&path, json_string.as_bytes())
         .map_err(|e| e.to_string())?;
     *settings_cache() = None;
+    apply_saved_lenses(&settings);
     crate::integrations::immich::apply_settings(&settings.immich);
     crate::render::gpu::display::invalidate_displays();
 
