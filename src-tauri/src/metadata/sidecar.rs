@@ -63,6 +63,14 @@ pub struct ImageMetadata {
     /// The rating, label and keywords last synced with the XMP sidecar.
     #[serde(default, rename = "xmpSync", skip_serializing_if = "Option::is_none")]
     pub xmp_sync: Option<crate::metadata::xmp::XmpSyncState>,
+    /// The rating the camera stored in the image file, once it was taken over.
+    /// Kept so a rating the user cleared does not come back from the file.
+    #[serde(
+        default,
+        rename = "embeddedRating",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub embedded_rating: Option<u8>,
 }
 
 impl Default for ImageMetadata {
@@ -75,6 +83,7 @@ impl Default for ImageMetadata {
             tags: None,
             exif: None,
             xmp_sync: None,
+            embedded_rating: None,
         }
     }
 }
@@ -384,6 +393,7 @@ fn is_default_sidecar(sidecar_path: &Path, source_path: &Path, metadata: &ImageM
         return false;
     }
     if metadata.rating != 0
+        || metadata.embedded_rating.is_some()
         || metadata.flag.is_some()
         || metadata.tags.as_ref().is_some_and(|tags| !tags.is_empty())
         || !is_default_adjustments(&metadata.adjustments, source_path)

@@ -3,6 +3,7 @@ use crate::app::state::{AppState, PendingMetadata};
 use crate::decode::formats::is_supported_image_file;
 use crate::library::file_ops::{is_cloud_placeholder, read_file_mapped};
 use crate::library::sidecars::{parse_sidecar_name, parse_virtual_path};
+use crate::metadata::exif_processing::EMBEDDED_RATING_KEY;
 use crate::metadata::sidecar::{ImageFlag, ImageMetadata, is_image_edited};
 use crate::metadata::xmp::{backfill_missing_xmp, resolve_xmp_path, sync_metadata_from_xmp};
 use crate::render::options::resolve_tonemapper_override;
@@ -38,6 +39,56 @@ pub fn rating_and_edited(path_str: &str, settings: &AppSettings) -> (u8, bool) {
     (metadata.rating, metadata.is_edited)
 }
 
+/// The in-camera rating found while reading the file's EXIF, without touching
+/// the image file itself.
+fn cached_embedded_rating(image_path: &Path, metadata: &ImageMetadata) -> Option<u8> {
+    let parse = |exif: &HashMap<String, String>| {
+        exif.get(EMBEDDED_RATING_KEY)
+            .and_then(|v| v.trim().parse::<u8>().ok())
+            .filter(|r| (1..=5).contains(r))
+    };
+    match &metadata.exif {
+        Some(exif) => parse(exif),
+        None => crate::metadata::exif_cache::get_exif_from_rrcache(image_path)
+            .as_ref()
+            .and_then(parse),
+    }
+}
+
+fn should_import_embedded_rating(metadata: &ImageMetadata) -> bool {
+    metadata.rating == 0 && metadata.flag.is_none() && metadata.embedded_rating.is_none()
+}
+
+/// Takes over the rating the camera stored in the file (Sony, Canon, Panasonic
+/// in-camera ratings) for images RapidRAW has no rating for yet. Remembered in
+/// the sidecar, so a rating the user clears later stays cleared.
+fn import_embedded_rating(image_path: &Path, sidecar_path: &Path, metadata: &mut ImageMetadata) {
+    if !should_import_embedded_rating(metadata)
+        || sidecar_path != crate::metadata::sidecar::get_primary_sidecar_path(image_path)
+    {
+        return;
+    }
+    let Some(rating) = cached_embedded_rating(image_path, metadata) else {
+        return;
+    };
+    match crate::metadata::sidecar::update_sidecar(sidecar_path, image_path, |current| {
+        if should_import_embedded_rating(current) {
+            current.rating = rating;
+        }
+        current.embedded_rating.get_or_insert(rating);
+    }) {
+        Ok(updated) => {
+            metadata.rating = updated.rating;
+            metadata.embedded_rating = updated.embedded_rating;
+        }
+        Err(e) => log::warn!(
+            "Could not store the in-camera rating of {}: {}",
+            image_path.display(),
+            e
+        ),
+    }
+}
+
 fn resolve_image_metadata(
     image_path: &Path,
     sidecar_path: &Path,
@@ -56,6 +107,7 @@ fn resolve_image_metadata(
             sync_metadata_from_xmp(image_path, sidecar_path, current);
         });
     }
+    import_embedded_rating(image_path, sidecar_path, &mut metadata);
     if enable_xmp_sync && settings.create_xmp_if_missing.unwrap_or(false) {
         backfill_missing_xmp(image_path, sidecar_path, &metadata);
     }
@@ -292,6 +344,7 @@ fn exif_read_pool() -> Option<&'static rayon::ThreadPool> {
 pub async fn read_exif_for_paths(
     paths: Vec<String>,
     state: tauri::State<'_, AppState>,
+    app_handle: AppHandle,
 ) -> Result<HashMap<String, HashMap<String, String>>, String> {
     let is_hdd = state
         .thumbnail_manager
@@ -331,6 +384,35 @@ pub async fn read_exif_for_paths(
         } else {
             paths.par_iter().filter_map(process_path).collect()
         };
+
+        // The listing ran before the EXIF was read, so ratings set in the camera
+        // are only known now.
+        let rated: Vec<&String> = exif_data
+            .iter()
+            .filter(|(_, exif)| exif.contains_key(EMBEDDED_RATING_KEY))
+            .map(|(path, _)| path)
+            .collect();
+        if !rated.is_empty() {
+            let settings = load_settings(app_handle.clone()).unwrap_or_default();
+            for virtual_path in rated {
+                let (source_path, sidecar_path) = parse_virtual_path(virtual_path);
+                if !should_import_embedded_rating(&crate::metadata::sidecar::load_sidecar(
+                    &sidecar_path,
+                )) {
+                    continue;
+                }
+                let metadata = resolve_image_metadata(
+                    &source_path,
+                    &sidecar_path,
+                    sidecar_path.exists(),
+                    false,
+                    &settings,
+                );
+                if metadata.rating > 0 {
+                    emit_image_metadata_loaded(&app_handle, virtual_path, &metadata);
+                }
+            }
+        }
 
         Ok(exif_data)
     })

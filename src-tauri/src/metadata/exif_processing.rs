@@ -809,7 +809,61 @@ pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>>
     None
 }
 
+/// The key under which the rating stored in the image file is kept in EXIF maps.
+pub const EMBEDDED_RATING_KEY: &str = "Rating";
+const EXIF_RATING_TAG: u16 = 0x4746;
+const EMBEDDED_XMP_SCAN_LIMIT: usize = 512 * 1024;
+const EMBEDDED_XMP_MAX_LEN: usize = 256 * 1024;
+
+fn exif_rating(file_bytes: &[u8]) -> Option<u8> {
+    let exif = if file_bytes.starts_with(b"IIU\0") {
+        // Panasonic RW2 is a TIFF with its own magic number.
+        let mut head = file_bytes[..file_bytes.len().min(EMBEDDED_XMP_SCAN_LIMIT)].to_vec();
+        head[2] = b'*';
+        exif::Reader::new().read_raw(head).ok()?
+    } else {
+        read_exif(file_bytes)?
+    };
+    exif.fields()
+        .find(|f| f.tag.number() == EXIF_RATING_TAG && f.ifd_num == In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .and_then(|r| u8::try_from(r).ok())
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// `xmp:Rating` of an XMP packet stored inside the file, as Canon (CR2, CR3),
+/// Panasonic (RW2) and DNG writers do.
+fn embedded_xmp_rating(file_bytes: &[u8]) -> Option<u8> {
+    let head = &file_bytes[..file_bytes.len().min(EMBEDDED_XMP_SCAN_LIMIT)];
+    let start = find_bytes(head, b"<x:xmpmeta")?;
+    let tail = &file_bytes[start..file_bytes.len().min(start + EMBEDDED_XMP_MAX_LEN)];
+    let end = find_bytes(tail, b"</x:xmpmeta>")? + b"</x:xmpmeta>".len();
+    let packet = std::str::from_utf8(&tail[..end]).ok()?;
+    let rating = crate::metadata::xmp_sidecar::XmpDocument::parse(packet)?.rating()?;
+    u8::try_from(rating).ok()
+}
+
+/// The star rating the camera stored in the file: EXIF Rating (0x4746, used by
+/// Sony and others) or the rating of an embedded XMP packet.
+pub fn read_embedded_rating(file_bytes: &[u8]) -> Option<u8> {
+    exif_rating(file_bytes)
+        .filter(|r| *r > 0)
+        .or_else(|| embedded_xmp_rating(file_bytes))
+        .filter(|r| (1..=5).contains(r))
+}
+
 pub fn read_exif_data_from_bytes(path: &str, file_bytes: &[u8]) -> HashMap<String, String> {
+    let mut map = read_exif_fields(path, file_bytes);
+    if let Some(rating) = read_embedded_rating(file_bytes) {
+        map.insert(EMBEDDED_RATING_KEY.to_string(), rating.to_string());
+    }
+    map
+}
+
+fn read_exif_fields(path: &str, file_bytes: &[u8]) -> HashMap<String, String> {
     if is_raw_file(path)
         && let Some(map) = extract_metadata(file_bytes)
     {
@@ -888,4 +942,46 @@ pub fn truncate_large_exif(value: &str) -> String {
     }
 
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A little endian TIFF whose first IFD only holds a Rating entry.
+    fn tiff_with_rating(magic: &[u8; 4], rating: u16) -> Vec<u8> {
+        let mut bytes = magic.to_vec();
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&EXIF_RATING_TAG.to_le_bytes());
+        bytes.extend_from_slice(&3u16.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&u32::from(rating).to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn reads_exif_rating() {
+        assert_eq!(
+            read_embedded_rating(&tiff_with_rating(b"II*\0", 3)),
+            Some(3)
+        );
+        assert_eq!(
+            read_embedded_rating(&tiff_with_rating(b"IIU\0", 5)),
+            Some(5)
+        );
+        assert_eq!(read_embedded_rating(&tiff_with_rating(b"II*\0", 0)), None);
+    }
+
+    #[test]
+    fn reads_embedded_xmp_rating() {
+        let mut bytes = b"ftypcrx \0\0\0\x01uuid".to_vec();
+        bytes.extend_from_slice(
+            br#"<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"><xmp:Rating>4</xmp:Rating></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>"#,
+        );
+        bytes.extend_from_slice(&[0xFF; 64]);
+        assert_eq!(read_embedded_rating(&bytes), Some(4));
+        assert_eq!(read_embedded_rating(b"no metadata here"), None);
+    }
 }
