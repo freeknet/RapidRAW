@@ -736,6 +736,7 @@ export default function SettingsPanel({
     baselineExposure: appSettings?.baselineExposure ?? DEFAULT_BASELINE_EXPOSURE,
     hdrHeadroom: appSettings?.hdrHeadroom ?? DEFAULT_HDR_HEADROOM,
     processingBackend: appSettings?.processingBackend || 'auto',
+    gpuPowerPreference: appSettings?.gpuPowerPreference || 'auto',
     linuxGpuOptimization: appSettings?.linuxGpuOptimization ?? false,
     highResZoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
     useFullDpiRendering: appSettings?.useFullDpiRendering ?? false,
@@ -773,6 +774,15 @@ export default function SettingsPanel({
     () => [
       { value: 'high', label: t('settings.processing.qualities.high') },
       { value: 'performance', label: t('settings.processing.qualities.performance') },
+    ],
+    [t],
+  );
+
+  const gpuPreferenceOptions = useMemo<OptionItem<string>[]>(
+    () => [
+      { value: 'auto', label: t('settings.processing.gpuPreferences.auto') },
+      { value: 'high-performance', label: t('settings.processing.gpuPreferences.highPerformance') },
+      { value: 'low-power', label: t('settings.processing.gpuPreferences.lowPower') },
     ],
     [t],
   );
@@ -874,6 +884,7 @@ export default function SettingsPanel({
       baselineExposure: appSettings?.baselineExposure ?? DEFAULT_BASELINE_EXPOSURE,
       hdrHeadroom: appSettings?.hdrHeadroom ?? DEFAULT_HDR_HEADROOM,
       processingBackend: appSettings?.processingBackend || 'auto',
+      gpuPowerPreference: appSettings?.gpuPowerPreference || 'auto',
       linuxGpuOptimization: appSettings?.linuxGpuOptimization ?? false,
       highResZoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
       useFullDpiRendering: appSettings?.useFullDpiRendering ?? false,
@@ -898,6 +909,7 @@ export default function SettingsPanel({
 
     if (
       key === 'processingBackend' ||
+      key === 'gpuPowerPreference' ||
       key === 'linuxGpuOptimization' ||
       key === 'useWgpuRenderer' ||
       key === 'thumbnailWorkerThreads'
@@ -2090,6 +2102,20 @@ export default function SettingsPanel({
                           triggerClassName="bg-bg-primary"
                         />
                       </SettingItem>
+
+                      {osPlatform !== 'android' && (
+                        <SettingItem
+                          label={t('settings.processing.gpuPreference')}
+                          description={t('settings.processing.gpuPreferenceDesc')}
+                        >
+                          <Dropdown
+                            onChange={(value: string) => handleProcessingSettingChange('gpuPowerPreference', value)}
+                            options={gpuPreferenceOptions}
+                            value={processingSettings.gpuPowerPreference}
+                            triggerClassName="bg-bg-primary"
+                          />
+                        </SettingItem>
+                      )}
 
                       <SettingItem
                         label={t('settings.processing.rawDecoding')}

@@ -2246,6 +2246,13 @@
         "title": "Redigera i"
       },
       "enableLivePreviews": "Aktivera förhandsvisning i realtid",
+      "gpuPreference": "Grafikkort",
+      "gpuPreferenceDesc": "Vilken GPU som används på datorer med fler än en. Välj 'Energibesparing' om den dedikerade GPU:n är långsam eller kraschar. Kräver omstart.",
+      "gpuPreferences": {
+        "auto": "Automatiskt",
+        "highPerformance": "Hög prestanda",
+        "lowPower": "Energibesparing"
+      },
       "hdr": {
         "display": "HDR-visning",
         "displayDesc": "Visar högdagrar ljusare än normalt vitt på en HDR-skärm. Skuggor och mellantoner förblir oförändrade, och vanlig export påverkas inte.",

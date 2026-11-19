@@ -2289,6 +2289,13 @@
         "title": "Editar en"
       },
       "enableLivePreviews": "Activar vistas previas en vivo",
+      "gpuPreference": "Tarjeta gráfica",
+      "gpuPreferenceDesc": "Qué GPU usar en equipos con más de una. Elige 'Ahorro de energía' si la GPU dedicada es lenta o se bloquea. Requiere reiniciar.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Alto rendimiento",
+        "lowPower": "Ahorro de energía"
+      },
       "hdr": {
         "display": "Pantalla HDR",
         "displayDesc": "Muestra las iluminaciones más brillantes que el blanco normal en una pantalla HDR. Las sombras y los medios tonos no cambian y las exportaciones estándar no se ven afectadas.",

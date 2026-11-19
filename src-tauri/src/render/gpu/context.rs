@@ -231,11 +231,24 @@ pub fn get_or_init_gpu_context(
     #[cfg(target_os = "android")]
     let surface_opt: Option<(wgpu::Surface, PlatformSurface)> = None;
 
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: surface_opt.as_ref().map(|(surface, _)| surface),
-        ..Default::default()
-    }))
+    #[cfg(not(target_os = "android"))]
+    let power_setting = load_settings(app_handle.clone())
+        .unwrap_or_default()
+        .gpu_power_preference;
+    #[cfg(target_os = "android")]
+    let power_setting: Option<String> = None;
+    let power_preference =
+        resolve_power_preference(power_setting.as_deref(), wgpu::PowerPreference::from_env());
+    let compatible_surface = surface_opt.as_ref().map(|(surface, _)| surface);
+    let named_adapter = adapter_named_in_env(&instance, compatible_surface);
+    let adapter = match named_adapter {
+        Some(adapter) => Ok(adapter),
+        None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference,
+            compatible_surface,
+            ..Default::default()
+        })),
+    }
     .map_err(|e| {
         if let Some(p) = &flag_path {
             let _ = std::fs::remove_file(p);
@@ -245,12 +258,13 @@ pub fn get_or_init_gpu_context(
 
     let adapter_info = adapter.get_info();
     log::info!(
-        "Using GPU adapter: {} ({:?}, {:?}, driver: {} {})",
+        "Using GPU adapter: {} ({:?}, {:?}, driver: {} {}, preference {:?})",
         adapter_info.name,
         adapter_info.backend,
         adapter_info.device_type,
         adapter_info.driver,
-        adapter_info.driver_info
+        adapter_info.driver_info,
+        power_preference
     );
 
     let mut required_features = wgpu::Features::empty();
@@ -262,6 +276,14 @@ pub fn get_or_init_gpu_context(
     }
 
     let limits = adapter.limits();
+    log::info!(
+        "GPU limits: texture 2d {}, buffer {}, storage binding {}, uniform binding {}, storage textures per stage {}",
+        limits.max_texture_dimension_2d,
+        limits.max_buffer_size,
+        limits.max_storage_buffer_binding_size,
+        limits.max_uniform_buffer_binding_size,
+        limits.max_storage_textures_per_shader_stage
+    );
 
     let (device, queue) = open_device(
         &adapter,
@@ -356,6 +378,65 @@ impl GpuContext {
     }
 }
 
+/// `WGPU_POWER_PREF` (low, high, none) wins over the setting, so a broken
+/// adapter choice can be overridden without opening the app.
+pub fn resolve_power_preference(
+    setting: Option<&str>,
+    env: Option<wgpu::PowerPreference>,
+) -> wgpu::PowerPreference {
+    env.unwrap_or(match setting {
+        Some("low-power") => wgpu::PowerPreference::LowPower,
+        _ => wgpu::PowerPreference::HighPerformance,
+    })
+}
+
+/// WebView2 runs in its own process, so the per-app GPU choice in Windows
+/// graphics settings does not reach it. The variable replaces wry's default
+/// arguments, so those are repeated here.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn webview2_browser_args(setting: Option<&str>) -> Option<String> {
+    let gpu = match setting {
+        Some("high-performance") => "--force_high_performance_gpu",
+        Some("low-power") => "--force_low_power_gpu",
+        _ => return None,
+    };
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {gpu}"
+    ))
+}
+
+pub fn adapter_name_matches(name: &str, wanted: &str) -> bool {
+    let wanted = wanted.trim();
+    !wanted.is_empty() && name.to_lowercase().contains(&wanted.to_lowercase())
+}
+
+/// The adapter `WGPU_ADAPTER_NAME` asks for. Unlike the wgpu helper this
+/// falls back to the normal choice when nothing matches instead of panicking.
+fn adapter_named_in_env(
+    instance: &wgpu::Instance,
+    compatible_surface: Option<&wgpu::Surface<'_>>,
+) -> Option<wgpu::Adapter> {
+    let wanted = std::env::var("WGPU_ADAPTER_NAME").ok()?;
+    let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+    for adapter in &adapters {
+        let info = adapter.get_info();
+        log::info!(
+            "Available GPU adapter: {} ({:?}, {:?})",
+            info.name,
+            info.backend,
+            info.device_type
+        );
+    }
+    let found = adapters.into_iter().find(|adapter| {
+        adapter_name_matches(&adapter.get_info().name, &wanted)
+            && compatible_surface.is_none_or(|surface| adapter.is_surface_supported(surface))
+    });
+    if found.is_none() {
+        log::warn!("No GPU adapter matches WGPU_ADAPTER_NAME={:?}", wanted);
+    }
+    found
+}
+
 pub fn lock_or_reset<'a, T>(
     mutex: &'a std::sync::Mutex<Option<T>>,
     name: &str,
@@ -366,4 +447,54 @@ pub fn lock_or_reset<'a, T>(
         *guard = None;
         guard
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wgpu::PowerPreference;
+
+    #[test]
+    fn power_preference_setting_and_env() {
+        assert_eq!(
+            resolve_power_preference(None, None),
+            PowerPreference::HighPerformance
+        );
+        assert_eq!(
+            resolve_power_preference(Some("auto"), None),
+            PowerPreference::HighPerformance
+        );
+        assert_eq!(
+            resolve_power_preference(Some("low-power"), None),
+            PowerPreference::LowPower
+        );
+        assert_eq!(
+            resolve_power_preference(Some("low-power"), Some(PowerPreference::HighPerformance)),
+            PowerPreference::HighPerformance
+        );
+    }
+
+    #[test]
+    fn webview2_args_keep_wry_defaults() {
+        assert_eq!(webview2_browser_args(None), None);
+        assert_eq!(webview2_browser_args(Some("auto")), None);
+        let high = webview2_browser_args(Some("high-performance")).unwrap();
+        assert!(
+            high.starts_with("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection ")
+        );
+        assert!(high.ends_with("--force_high_performance_gpu"));
+        assert!(
+            webview2_browser_args(Some("low-power"))
+                .unwrap()
+                .ends_with("--force_low_power_gpu")
+        );
+    }
+
+    #[test]
+    fn adapter_names_match_case_insensitively() {
+        assert!(adapter_name_matches("Intel(R) UHD Graphics 620", "uhd"));
+        assert!(adapter_name_matches("NVIDIA GeForce MX150", " MX150 "));
+        assert!(!adapter_name_matches("NVIDIA GeForce MX150", "intel"));
+        assert!(!adapter_name_matches("NVIDIA GeForce MX150", ""));
+    }
 }

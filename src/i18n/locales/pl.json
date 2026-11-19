@@ -2332,6 +2332,13 @@
         "title": "Edytuj w"
       },
       "enableLivePreviews": "Włącz interaktywny podgląd na żywo",
+      "gpuPreference": "Karta graficzna",
+      "gpuPreferenceDesc": "Którego GPU używać na komputerach z więcej niż jedną kartą. Wybierz 'Oszczędzanie energii', jeśli dedykowany GPU działa wolno lub się zawiesza. Wymaga ponownego uruchomienia.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Wysoka wydajność",
+        "lowPower": "Oszczędzanie energii"
+      },
       "hdr": {
         "display": "Wyświetlanie HDR",
         "displayDesc": "Pokazuje światła jaśniejsze niż zwykła biel na ekranie HDR. Cienie i półtony pozostają bez zmian, a standardowe eksporty nie są zmieniane.",

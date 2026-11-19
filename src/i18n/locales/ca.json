@@ -2289,6 +2289,13 @@
         "title": "Edita a"
       },
       "enableLivePreviews": "Activar vistes prèvies en directe",
+      "gpuPreference": "Targeta gràfica",
+      "gpuPreferenceDesc": "Quina GPU s'utilitza als ordinadors que en tenen més d'una. Tria 'Estalvi d'energia' si la GPU dedicada és lenta o es bloqueja. Cal reiniciar.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Alt rendiment",
+        "lowPower": "Estalvi d'energia"
+      },
       "hdr": {
         "display": "Pantalla HDR",
         "displayDesc": "Mostra les altes llums més brillants que el blanc normal en una pantalla HDR. Les ombres i els tons mitjans no canvien i les exportacions estàndard no es veuen afectades.",

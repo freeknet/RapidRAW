@@ -324,6 +324,15 @@ pub fn run() {
                         std::env::set_var("WGPU_BACKEND", backend);
                     }
 
+                #[cfg(target_os = "windows")]
+                if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none()
+                    && let Some(args) = render::gpu::context::webview2_browser_args(
+                        settings.gpu_power_preference.as_deref(),
+                    )
+                {
+                    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args);
+                }
+
                 #[cfg(target_os = "linux")]
                 {
                     if settings.linux_gpu_optimization.unwrap_or(false) {

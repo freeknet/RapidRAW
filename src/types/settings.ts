@@ -137,6 +137,7 @@ export interface AppSettings {
   uiVisibility?: UiVisibility;
   rawHighlightCompression?: number;
   processingBackend?: string;
+  gpuPowerPreference?: string;
   rawDecoding?: string;
   linuxGpuOptimization?: boolean;
   exportDialogFolder?: ExportDialogFolder;
