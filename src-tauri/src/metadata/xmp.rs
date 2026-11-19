@@ -555,28 +555,8 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod helper_tests {
     use super::*;
-
-    #[test]
-    fn rating_is_read_from_attribute_or_element_form() {
-        assert_eq!(
-            extract_xmp_rating(r#"<rdf:Description xmp:Rating="4" />"#),
-            Some(4)
-        );
-        assert_eq!(extract_xmp_rating("<xmp:Rating>2</xmp:Rating>"), Some(2));
-        assert_eq!(
-            extract_xmp_rating(r#"<rdf:Description xmp:Rating="-1" />"#),
-            Some(-1)
-        );
-    }
-
-    #[test]
-    fn missing_or_malformed_rating_is_none() {
-        assert_eq!(extract_xmp_rating("<rdf:Description />"), None);
-        assert_eq!(extract_xmp_rating(r#"xmp:Rating="five""#), None);
-        assert_eq!(extract_xmp_rating(r#"xmp:Rating="3"#), None);
-    }
 
     #[test]
     fn rejected_images_are_written_with_the_rejected_rating() {
@@ -589,19 +569,6 @@ mod tests {
         assert_eq!(xmp_rating(&metadata), "-1");
         metadata.flag = Some(ImageFlag::Pick);
         assert_eq!(xmp_rating(&metadata), "3");
-    }
-
-    #[test]
-    fn label_is_read_from_attribute_or_element_form() {
-        assert_eq!(
-            extract_xmp_label(r#"<rdf:Description xmp:Label="Red" />"#).as_deref(),
-            Some("Red")
-        );
-        assert_eq!(
-            extract_xmp_label("<xmp:Label>Green</xmp:Label>").as_deref(),
-            Some("Green")
-        );
-        assert_eq!(extract_xmp_label("<rdf:Description />"), None);
     }
 
     #[test]
