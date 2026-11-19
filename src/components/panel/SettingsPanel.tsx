@@ -1272,6 +1272,18 @@ export default function SettingsPanel({
                       </SettingItem>
 
                       <SettingItem
+                        label={t('settings.general.filmstripAutoCenter')}
+                        description={t('settings.general.filmstripAutoCenterDesc')}
+                      >
+                        <Switch
+                          checked={appSettings?.filmstripAutoCenter ?? true}
+                          id="filmstrip-auto-center-toggle"
+                          label={t('settings.general.filmstripAutoCenter')}
+                          onChange={(checked) => onSettingsChange({ ...appSettings, filmstripAutoCenter: checked })}
+                        />
+                      </SettingItem>
+
+                      <SettingItem
                         label={t('settings.general.focusMode')}
                         description={t('settings.general.focusModeDesc')}
                       >
