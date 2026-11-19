@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Rgb};
 use rawler::{
-    decoders::{Decoder, Orientation, RawDecodeParams},
+    decoders::{Decoder, FormatHint, Orientation, RawDecodeParams},
     imgop::{
         Dim2, Point, Rect,
         develop::{DemosaicAlgorithm, Intermediate, ProcessingStep, RawDevelop},
@@ -272,6 +272,10 @@ pub fn develop_raw_image(
 
     check_cancel()?;
     let mut raw_image: RawImage = decoder.raw_image(&source, &RawDecodeParams::default(), false)?;
+    if decoder.format_hint() == FormatHint::RAF {
+        raw_image.active_area =
+            extend_active_area_to_crop(raw_image.active_area, raw_image.crop_area, raw_image.dim());
+    }
 
     let orientation = metadata_orientation(decoder.as_ref(), &source)?;
 
@@ -509,7 +513,11 @@ fn default_crop(
         return full;
     };
     if let Some(active_area) = active_area {
-        crop = crop.intersection(&active_area).adapt(&active_area);
+        crop = crop.intersection(&active_area);
+        if crop.is_empty() {
+            return full;
+        }
+        crop = crop.adapt(&active_area);
     }
     let original_width = active_area.map(|area| area.d.w).unwrap_or(raw_dim.w);
     if original_width > 0 {
@@ -524,6 +532,31 @@ fn default_crop(
     } else {
         crop
     }
+}
+
+/// Grows the active area so it holds the crop of the file.
+///
+/// The camera definitions give RAF active areas as borders of the uncompressed
+/// raw width, while compressed files decode to a narrower width. The border
+/// then cut into the crop the file itself declares, which lost 96 pixels on
+/// the right of compressed X-Pro2 files.
+fn extend_active_area_to_crop(
+    active_area: Option<Rect>,
+    crop_area: Option<Rect>,
+    dim: Dim2,
+) -> Option<Rect> {
+    let (Some(active), Some(crop)) = (active_area, crop_area) else {
+        return active_area;
+    };
+    let [crop_l, crop_t, crop_r, crop_b] = crop.as_ltrb();
+    if crop.is_empty() || crop_r > dim.w || crop_b > dim.h {
+        return active_area;
+    }
+    let [l, t, r, b] = active.as_ltrb();
+    Some(Rect::new_with_points(
+        Point::new(l.min(crop_l), t.min(crop_t)),
+        Point::new(r.max(crop_r), b.max(crop_b)),
+    ))
 }
 
 fn cfa_white_balance(raw_image: &RawImage) -> Option<[f32; 3]> {
@@ -645,4 +678,54 @@ pub fn get_fast_demosaic_scale_factor(
         }
     }
     1.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(l: usize, t: usize, r: usize, b: usize) -> Rect {
+        Rect::new_with_points(Point::new(l, t), Point::new(r, b))
+    }
+
+    #[test]
+    fn compressed_raf_crop_is_kept_whole() {
+        // Compressed X-Pro2: 6048 wide, the camera border leaves 5920 columns,
+        // the file declares a 6000x4000 crop at 16:21
+        let dim = Dim2::new(6048, 4038);
+        let active = extend_active_area_to_crop(
+            Some(rect(0, 0, 5920, 4038)),
+            Some(rect(16, 21, 6016, 4021)),
+            dim,
+        );
+        assert_eq!(active, Some(rect(0, 0, 6016, 4038)));
+        let domain = Dim2::new(6016, 4038);
+        let crop = default_crop(Some(rect(16, 21, 6016, 4021)), active, dim, domain);
+        assert_eq!(crop, rect(16, 21, 6016, 4021));
+    }
+
+    #[test]
+    fn active_area_holding_the_crop_is_unchanged() {
+        let dim = Dim2::new(6160, 4032);
+        let active = Some(rect(0, 0, 6032, 4032));
+        let crop = Some(rect(16, 21, 6016, 4021));
+        assert_eq!(extend_active_area_to_crop(active, crop, dim), active);
+        assert_eq!(extend_active_area_to_crop(active, None, dim), active);
+        assert_eq!(extend_active_area_to_crop(None, crop, dim), None);
+        // A crop past the image is not trusted
+        let outside = Some(rect(16, 21, 6200, 4021));
+        assert_eq!(extend_active_area_to_crop(active, outside, dim), active);
+    }
+
+    #[test]
+    fn crop_outside_the_active_area_falls_back_to_full() {
+        let dim = Dim2::new(100, 100);
+        let crop = default_crop(
+            Some(rect(0, 0, 10, 10)),
+            Some(rect(50, 50, 100, 100)),
+            dim,
+            Dim2::new(50, 50),
+        );
+        assert_eq!(crop, rect(0, 0, 50, 50));
+    }
 }
