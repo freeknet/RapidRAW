@@ -1,14 +1,15 @@
 use crate::decode::as_shot::AsShot;
 use crate::decode::demosaic::Mosaic;
 use crate::decode::develop::{self, Camera, Finish};
+use crate::decode::dng_opcodes::{OpcodeList3, Placement};
 use crate::decode::white_balance::WhiteBalance;
 use crate::render::color_space::{GamutCompression, fit_gamut, gamut_limits, srgb_to_working};
 use crate::render::geometry::apply_orientation;
 use anyhow::{Result, anyhow};
 use glam::Vec3;
-use image::{DynamicImage, ImageBuffer, Rgb};
+use image::{DynamicImage, ImageBuffer, Rgb, Rgb32FImage};
 use rawler::{
-    decoders::{Decoder, Orientation, RawDecodeParams},
+    decoders::{Decoder, FormatHint, Orientation, RawDecodeParams},
     imgop::{
         Dim2, Point, Rect,
         develop::{DemosaicAlgorithm, Intermediate, ProcessingStep, RawDevelop},
@@ -267,13 +268,34 @@ pub fn develop_raw_image(
 
     check_cancel()?;
 
+    let decodable = crate::decode::dng_monochrome::as_linear_raw(file_bytes);
+    let file_bytes: &[u8] = &decodable;
     let source = RawSource::new_from_slice(file_bytes);
     let decoder = rawler::get_decoder(&source)?;
 
     check_cancel()?;
     let mut raw_image: RawImage = decoder.raw_image(&source, &RawDecodeParams::default(), false)?;
+    crate::decode::dng_opcodes::apply_raw_opcodes(decoder.as_ref(), &mut raw_image);
+    if decoder.format_hint() == FormatHint::RAF {
+        raw_image.active_area =
+            extend_active_area_to_crop(raw_image.active_area, raw_image.crop_area, raw_image.dim());
+    }
 
     let orientation = metadata_orientation(decoder.as_ref(), &source)?;
+    // OpcodeList3 refers to the unrotated image, so the rotation waits for it
+    let list3 = OpcodeList3::read(decoder.as_ref());
+    let finish_orientation = if list3.is_some() {
+        Orientation::Normal
+    } else {
+        orientation
+    };
+    let finish_list3 = |image: Rgb32FImage, placement: Placement| match &list3 {
+        Some(list3) => apply_orientation(
+            DynamicImage::ImageRgb32F(list3.apply(image, placement)),
+            orientation,
+        ),
+        None => DynamicImage::ImageRgb32F(image),
+    };
 
     let is_linear_format = is_linear_raw_format(&raw_image);
 
@@ -315,7 +337,7 @@ pub fn develop_raw_image(
     };
     let finish = |camera: Option<Camera>| Finish {
         camera,
-        orientation,
+        orientation: finish_orientation,
         denoise,
         sharpen,
     };
@@ -333,26 +355,28 @@ pub fn develop_raw_image(
                 dim,
             )
         };
-        let image = if fast_demosaic {
+        let (image, placement) = if fast_demosaic {
             let (data, dim) = mosaic.bin();
             check_cancel()?;
             let crop = crop(dim);
-            develop::finish_rgb(
+            let image = develop::finish_rgb(
                 &crop_rows(&data, dim.w, crop),
                 crop.d.w as u32,
                 crop.d.h as u32,
                 &finish,
-            )
+            );
+            (image, Placement::new(crop, dim))
         } else {
             let domain = mosaic.domain();
             let crop = crop(domain.d);
+            let placement = Placement::new(crop, domain.d);
             let crop = Rect::new(
                 Point::new(domain.p.x + crop.p.x, domain.p.y + crop.p.y),
                 crop.d,
             );
-            mosaic.develop(crop, &finish, check_cancel)?
+            (mosaic.develop(crop, &finish, check_cancel)?, placement)
         };
-        return Ok(DynamicImage::ImageRgb32F(image));
+        return Ok(finish_list3(image, placement));
     }
 
     for level in raw_image.whitelevel.0.iter_mut() {
@@ -384,6 +408,12 @@ pub fn develop_raw_image(
     let (crop_area, active_area, raw_dim) =
         (raw_image.crop_area, raw_image.active_area, raw_image.dim());
     drop(raw_image);
+    let list3_placement = if is_linear_format {
+        linear_placement(crop_area, active_area, raw_dim)
+    } else {
+        let dim = developed_intermediate.dim();
+        Placement::new(Rect::new(Point::zero(), dim), dim)
+    };
 
     if cfa_balance.is_none()
         && let Some(camera_to_working) = &camera_to_working
@@ -416,6 +446,7 @@ pub fn develop_raw_image(
             let wb = cfa_balance.unwrap();
             let camera = camera_to_working.as_ref().unwrap().camera(wb, clamp_limit);
             let crop = default_crop(crop_area, active_area, raw_dim, pixels.dim());
+            let placement = Placement::new(crop, pixels.dim());
             let mut data = crop_rows(&pixels.data, pixels.width, crop).into_owned();
             data.par_iter_mut().for_each(|p| {
                 for c in 0..3 {
@@ -430,7 +461,7 @@ pub fn develop_raw_image(
                 crop.d.h as u32,
                 &finish(Some(camera)),
             );
-            return Ok(DynamicImage::ImageRgb32F(image));
+            return Ok(finish_list3(image, placement));
         }
         Intermediate::ThreeColor(pixels) => {
             let uncalibrated_to_working = camera_to_working.is_none().then(srgb_to_working);
@@ -479,11 +510,38 @@ pub fn develop_raw_image(
         }
     };
 
+    let dynamic_image = match (&list3, dynamic_image) {
+        (Some(list3), DynamicImage::ImageRgb32F(image)) => {
+            DynamicImage::ImageRgb32F(list3.apply(image, list3_placement))
+        }
+        (_, image) => image,
+    };
+
     Ok(develop::enhance(
         apply_orientation(dynamic_image, orientation),
         denoise,
         sharpen,
     ))
+}
+
+/// Where a linear raw image developed by rawler lies in its ActiveArea. rawler
+/// crops linear images to the crop area of the whole image, without
+/// demosaicing to the ActiveArea first.
+fn linear_placement(
+    crop_area: Option<Rect>,
+    active_area: Option<Rect>,
+    raw_dim: Dim2,
+) -> Placement {
+    let full = Rect::new(Point::zero(), raw_dim);
+    let shown = crop_area.filter(|crop| !crop.is_empty()).unwrap_or(full);
+    let area = active_area.unwrap_or(full);
+    Placement {
+        origin: [
+            shown.p.x as f64 - area.p.x as f64,
+            shown.p.y as f64 - area.p.y as f64,
+        ],
+        size: [area.d.w as f64, area.d.h as f64],
+    }
 }
 
 fn crop_rows(data: &[[f32; 3]], stride: usize, crop: Rect) -> Cow<'_, [[f32; 3]]> {
@@ -509,7 +567,11 @@ fn default_crop(
         return full;
     };
     if let Some(active_area) = active_area {
-        crop = crop.intersection(&active_area).adapt(&active_area);
+        crop = crop.intersection(&active_area);
+        if crop.is_empty() {
+            return full;
+        }
+        crop = crop.adapt(&active_area);
     }
     let original_width = active_area.map(|area| area.d.w).unwrap_or(raw_dim.w);
     if original_width > 0 {
@@ -524,6 +586,31 @@ fn default_crop(
     } else {
         crop
     }
+}
+
+/// Grows the active area so it holds the crop of the file.
+///
+/// The camera definitions give RAF active areas as borders of the uncompressed
+/// raw width, while compressed files decode to a narrower width. The border
+/// then cut into the crop the file itself declares, which lost 96 pixels on
+/// the right of compressed X-Pro2 files.
+fn extend_active_area_to_crop(
+    active_area: Option<Rect>,
+    crop_area: Option<Rect>,
+    dim: Dim2,
+) -> Option<Rect> {
+    let (Some(active), Some(crop)) = (active_area, crop_area) else {
+        return active_area;
+    };
+    let [crop_l, crop_t, crop_r, crop_b] = crop.as_ltrb();
+    if crop.is_empty() || crop_r > dim.w || crop_b > dim.h {
+        return active_area;
+    }
+    let [l, t, r, b] = active.as_ltrb();
+    Some(Rect::new_with_points(
+        Point::new(l.min(crop_l), t.min(crop_t)),
+        Point::new(r.max(crop_r), b.max(crop_b)),
+    ))
 }
 
 fn cfa_white_balance(raw_image: &RawImage) -> Option<[f32; 3]> {
@@ -545,6 +632,8 @@ fn cfa_white_balance(raw_image: &RawImage) -> Option<[f32; 3]> {
 }
 
 pub fn read_as_shot(file_bytes: &[u8]) -> Option<AsShot> {
+    let decodable = crate::decode::dng_monochrome::as_linear_raw(file_bytes);
+    let file_bytes: &[u8] = &decodable;
     let source = RawSource::new_from_slice(file_bytes);
     let decoder = rawler::get_decoder(&source).ok()?;
     let mut raw_image = decoder
@@ -617,7 +706,8 @@ fn mono_pixels_to_rgb(
 }
 
 pub fn raw_dimensions(file_bytes: &[u8]) -> Option<(usize, usize)> {
-    let source = RawSource::new_from_slice(file_bytes);
+    let file_bytes = crate::decode::dng_monochrome::as_linear_raw(file_bytes);
+    let source = RawSource::new_from_slice(&file_bytes);
     let decoder = rawler::get_decoder(&source).ok()?;
     let raw_img = decoder
         .raw_image(&source, &RawDecodeParams::default(), true)
@@ -645,4 +735,145 @@ pub fn get_fast_demosaic_scale_factor(
         }
     }
     1.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(l: usize, t: usize, r: usize, b: usize) -> Rect {
+        Rect::new_with_points(Point::new(l, t), Point::new(r, b))
+    }
+
+    #[test]
+    fn compressed_raf_crop_is_kept_whole() {
+        // Compressed X-Pro2: 6048 wide, the camera border leaves 5920 columns,
+        // the file declares a 6000x4000 crop at 16:21
+        let dim = Dim2::new(6048, 4038);
+        let active = extend_active_area_to_crop(
+            Some(rect(0, 0, 5920, 4038)),
+            Some(rect(16, 21, 6016, 4021)),
+            dim,
+        );
+        assert_eq!(active, Some(rect(0, 0, 6016, 4038)));
+        let domain = Dim2::new(6016, 4038);
+        let crop = default_crop(Some(rect(16, 21, 6016, 4021)), active, dim, domain);
+        assert_eq!(crop, rect(16, 21, 6016, 4021));
+    }
+
+    #[test]
+    fn active_area_holding_the_crop_is_unchanged() {
+        let dim = Dim2::new(6160, 4032);
+        let active = Some(rect(0, 0, 6032, 4032));
+        let crop = Some(rect(16, 21, 6016, 4021));
+        assert_eq!(extend_active_area_to_crop(active, crop, dim), active);
+        assert_eq!(extend_active_area_to_crop(active, None, dim), active);
+        assert_eq!(extend_active_area_to_crop(None, crop, dim), None);
+        // A crop past the image is not trusted
+        let outside = Some(rect(16, 21, 6200, 4021));
+        assert_eq!(extend_active_area_to_crop(active, outside, dim), active);
+    }
+
+    #[test]
+    fn crop_outside_the_active_area_falls_back_to_full() {
+        let dim = Dim2::new(100, 100);
+        let crop = default_crop(
+            Some(rect(0, 0, 10, 10)),
+            Some(rect(50, 50, 100, 100)),
+            dim,
+            Dim2::new(50, 50),
+        );
+        assert_eq!(crop, rect(0, 0, 50, 50));
+    }
+
+    fn develop(file: &[u8]) -> Rgb32FImage {
+        develop_raw_image(file, false, 1.0, "linear".into(), 0.0, 0.0, None)
+            .unwrap()
+            .into_rgb32f()
+    }
+
+    #[test]
+    fn black_is_zero_monochrome_dngs_develop() {
+        // Monochrome DNGs store their data as BlackIsZero, which rawler failed
+        // to decode because it looked for a CFA pattern
+        use crate::decode::test_dng::*;
+        let file = dng(
+            8,
+            8,
+            1,
+            BLACK_IS_ZERO,
+            &[600; 64],
+            vec![shorts(50714, &[100]), longs(50717, &[1100])],
+        );
+        let image = develop(&file);
+        assert_eq!(image.dimensions(), (8, 8));
+        for value in image.as_raw() {
+            assert!((value - 0.5).abs() < 1e-3, "{value}");
+        }
+    }
+
+    fn linear_gradient(orientation: u16, list3: Option<&[u8]>) -> Vec<u8> {
+        use crate::decode::test_dng::*;
+        let pixels: Vec<u16> = (0..7u16)
+            .flat_map(|y| (0..9u16).flat_map(move |x| [50 * x + 10 * y; 3]))
+            .collect();
+        let mut tags = vec![
+            shorts(274, &[orientation]),
+            shorts(50714, &[0, 0, 0]),
+            longs(50717, &[1000]),
+        ];
+        if let Some(list3) = list3 {
+            tags.push(undefined(OPCODE_LIST3, list3));
+        }
+        dng(9, 7, 3, LINEAR_RAW, &pixels, tags)
+    }
+
+    fn warp_list(kr0: f64, center: [f64; 2]) -> Vec<u8> {
+        let mut params = 1u32.to_be_bytes().to_vec();
+        for value in [kr0, 0.0, 0.0, 0.0, 0.0, 0.0, center[0], center[1]] {
+            params.extend_from_slice(&value.to_be_bytes());
+        }
+        let mut list = 1u32.to_be_bytes().to_vec();
+        for word in [1, 0x0103_0000, 0, params.len() as u32] {
+            list.extend_from_slice(&u32::to_be_bytes(word));
+        }
+        list.extend_from_slice(&params);
+        list
+    }
+
+    fn assert_close(a: &Rgb32FImage, b: &Rgb32FImage) {
+        assert_eq!(a.dimensions(), b.dimensions());
+        for (x, y) in a.as_raw().iter().zip(b.as_raw()) {
+            assert!((x - y).abs() < 1e-4, "{x} != {y}");
+        }
+    }
+
+    #[test]
+    fn opcode_list3_warp_applies_before_the_rotation() {
+        let warp = warp_list(0.8, [0.25, 0.5]);
+        let plain = develop(&linear_gradient(1, None));
+        let warped = develop(&linear_gradient(1, Some(&warp)));
+        // The optical centre stays, the pixels around it are pulled towards it
+        assert_eq!(warped.get_pixel(2, 3), plain.get_pixel(2, 3));
+        assert!(warped.get_pixel(8, 3)[0] < plain.get_pixel(8, 3)[0]);
+
+        let rotated = develop(&linear_gradient(6, Some(&warp)));
+        let expected = apply_orientation(DynamicImage::ImageRgb32F(warped), Orientation::Rotate90)
+            .into_rgb32f();
+        assert_close(&rotated, &expected);
+    }
+
+    #[test]
+    fn linear_placement_is_relative_to_the_active_area() {
+        let placement = linear_placement(
+            Some(rect(10, 12, 90, 70)),
+            Some(rect(8, 8, 92, 72)),
+            Dim2::new(100, 80),
+        );
+        assert_eq!(placement.origin, [2.0, 4.0]);
+        assert_eq!(placement.size, [84.0, 64.0]);
+        let whole = linear_placement(None, None, Dim2::new(100, 80));
+        assert_eq!(whole.origin, [0.0, 0.0]);
+        assert_eq!(whole.size, [100.0, 80.0]);
+    }
 }
