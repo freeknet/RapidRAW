@@ -273,7 +273,7 @@ pub fn auto_results_to_json(
         "vibrance": c(results.vibrancy),
         "clarity": c(results.clarity),
         "dehaze": c(results.dehaze),
-        "centré": c(results.centre),
+        "centre": c(results.centre),
         "vignetteAmount": c(results.vignette_amount),
         "activeTools": {
             "basic": true,

@@ -157,6 +157,27 @@ pub fn transformed_dimensions(
 
 const BASELINE_EXPOSURE_KEY: &str = "baselineExposure";
 
+/// Adjustment keys that were renamed, as `(current, legacy)`. Sidecars and presets
+/// written before the rename still carry the legacy key.
+pub const LEGACY_ADJUSTMENT_KEYS: [(&str, &str); 3] = [
+    ("centre", "centr\u{e9}"),
+    ("centreX", "centr\u{e9}X"),
+    ("centreY", "centr\u{e9}Y"),
+];
+
+/// Reads an adjustment by its current key, falling back to the legacy key it was
+/// renamed from. The current key wins when both are present.
+pub fn adjustment_value<'a>(adjustments: &'a Value, key: &str) -> &'a Value {
+    let value = &adjustments[key];
+    if !value.is_null() {
+        return value;
+    }
+    LEGACY_ADJUSTMENT_KEYS
+        .iter()
+        .find(|(current, _)| *current == key)
+        .map_or(value, |(_, legacy)| &adjustments[*legacy])
+}
+
 pub fn mark_baseline_exposure(adjustments: &mut Value) {
     if let Some(object) = adjustments.as_object_mut() {
         object.insert(BASELINE_EXPOSURE_KEY.to_string(), Value::Bool(true));
@@ -367,4 +388,34 @@ pub fn active_tools(adjustments: &serde_json::Value) -> serde_json::Map<String, 
 
 pub fn is_effect_enabled(adjustments: &serde_json::Value, tool: &str, enabled_key: &str) -> bool {
     adjustments[enabled_key].as_bool().unwrap_or(false) && is_tool_active(adjustments, tool)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renamed_keys_fall_back_to_the_legacy_key() {
+        let legacy = json!({ "centr\u{e9}": 30, "centr\u{e9}X": 0.25 });
+        assert_eq!(adjustment_value(&legacy, "centre"), &json!(30));
+        assert_eq!(adjustment_value(&legacy, "centreX"), &json!(0.25));
+        assert!(adjustment_value(&legacy, "centreY").is_null());
+
+        let both = json!({ "centre": 10, "centr\u{e9}": 30 });
+        assert_eq!(adjustment_value(&both, "centre"), &json!(10));
+        assert_eq!(adjustment_value(&both, "contrast"), &Value::Null);
+    }
+
+    #[test]
+    fn persisted_adjustment_keys_are_ascii() {
+        let factory = factory_adjustments().expect("default adjustments parse");
+        assert!(
+            factory.keys().all(|key| key.is_ascii()),
+            "{:?}",
+            factory.keys()
+        );
+        for (current, _) in LEGACY_ADJUSTMENT_KEYS {
+            assert!(factory.contains_key(current));
+        }
+    }
 }

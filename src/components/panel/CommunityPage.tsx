@@ -8,7 +8,7 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import { Invokes } from '../../types/invokes';
 import { SupportedTypes, ImageFile } from '../../types/library';
-import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
+import { INITIAL_ADJUSTMENTS, migrateLegacyAdjustmentKeys } from '../../utils/adjustments';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import Dropdown from '../ui/Dropdown';
@@ -99,7 +99,12 @@ const CommunityPage = ({ onBackToLibrary, imageList, currentFolderPath }: Commun
       setIsLoading(true);
       try {
         const communityPresets: CommunityPreset[] = await invoke(Invokes.FetchCommunityPresets);
-        setPresets(communityPresets);
+        setPresets(
+          communityPresets.map((preset) => ({
+            ...preset,
+            adjustments: migrateLegacyAdjustmentKeys(preset.adjustments),
+          })),
+        );
       } catch (error) {
         console.error('Failed to fetch community presets:', error);
       } finally {

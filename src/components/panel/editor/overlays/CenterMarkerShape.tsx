@@ -30,7 +30,7 @@ export const CENTER_MARKERS: Record<CenterMarker, CenterMarkerConfig> = {
   },
   // Centré has a fixed falloff in shader.wgsl (midpoint 0.4, circular).
   centre: {
-    keys: ['centréX', 'centréY'],
+    keys: ['centreX', 'centreY'],
     section: 'details',
     getContour: () => ({ midpoint: 40, roundness: 0 }),
   },

@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
-import { Adjustments, COPYABLE_ADJUSTMENT_KEYS, ADJUSTMENT_GROUPS, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
+import {
+  Adjustments,
+  COPYABLE_ADJUSTMENT_KEYS,
+  ADJUSTMENT_GROUPS,
+  INITIAL_ADJUSTMENTS,
+  migrateLegacyAdjustmentKeys,
+} from '../utils/adjustments';
 import { getDefaultAdjustments } from '../utils/developDefaults';
 import { Folder } from '../types/library';
 import { Invokes } from '../types/invokes';
@@ -18,6 +24,26 @@ export interface UserPreset {
   name?: string | undefined;
   preset?: Preset;
 }
+
+const migratePreset = (preset: Preset): Preset => ({
+  ...preset,
+  adjustments: migrateLegacyAdjustmentKeys(preset.adjustments),
+});
+
+// Presets saved before an adjustment key was renamed are moved to the current keys.
+export const migratePresetItems = (items: Array<UserPreset>): Array<UserPreset> =>
+  items.map((item) => ({
+    ...item,
+    ...(item.preset ? { preset: migratePreset(item.preset) } : {}),
+    ...(item.folder
+      ? {
+          folder: {
+            ...item.folder,
+            children: (item.folder.children ?? []).map((child: Preset) => migratePreset(child)),
+          },
+        }
+      : {}),
+  }));
 
 export interface PresetImportFailure {
   fileName: string;
@@ -44,7 +70,7 @@ export function usePresets(currentAdjustments: Adjustments) {
     setIsLoading(true);
     try {
       const loadedPresets: Array<UserPreset> = await invoke(Invokes.LoadPresets);
-      setPresets(loadedPresets);
+      setPresets(migratePresetItems(loadedPresets));
     } catch (error) {
       console.error('Failed to load presets:', error);
       setPresets([]);

@@ -1,7 +1,9 @@
 use crate::decode::as_shot::AsShot;
 use crate::decode::white_balance::{self, WhiteBalance};
 use crate::masks::generation::MaskDefinition;
-use crate::render::adjustment_utils::{effective_baseline_exposure, is_tool_active};
+use crate::render::adjustment_utils::{
+    adjustment_value, effective_baseline_exposure, is_tool_active,
+};
 use crate::render::color_space::{
     OutputColorSpace, OutputTransform, TransferCurve, compression_uniform, srgb_decode,
     working_to_srgb,
@@ -113,7 +115,7 @@ pub struct GlobalAdjustments {
     pub clarity: f32,
     pub dehaze: f32,
     pub structure: f32,
-    pub centré: f32,
+    pub centre: f32,
     pub vignette_amount: f32,
     pub vignette_midpoint: f32,
     pub vignette_roundness: f32,
@@ -155,8 +157,8 @@ pub struct GlobalAdjustments {
     pub color_grading_global: ColorGradeSettings,
     pub color_grading_blending: f32,
     pub color_grading_balance: f32,
-    _pad2: f32,
-    _pad3: f32,
+    pub vignette_frame_cos: f32,
+    pub vignette_frame_sin: f32,
 
     pub color_calibration: ColorCalibrationSettings,
 
@@ -169,10 +171,9 @@ pub struct GlobalAdjustments {
     pub red_curve_count: u32,
     pub green_curve_count: u32,
     pub blue_curve_count: u32,
-    _pad_end1: f32,
-    _pad_end2: f32,
-    _pad_end3: f32,
-    _pad_end4: f32,
+    /// Crop rectangle the creative vignette is relative to, as normalized center and
+    /// size in the rotated frame of the input. Zero size means the whole input.
+    pub vignette_frame: [f32; 4],
 
     pub glow_amount: f32,
     pub halation_amount: f32,
@@ -267,7 +268,7 @@ struct AdjustmentScales {
     clarity: f32,
     dehaze: f32,
     structure: f32,
-    centré: f32,
+    centre: f32,
 
     vignette_amount: f32,
     vignette_midpoint: f32,
@@ -317,7 +318,7 @@ const SCALES: AdjustmentScales = AdjustmentScales {
     clarity: 125.0,
     dehaze: 100.0,
     structure: 125.0,
-    centré: 250.0,
+    centre: 250.0,
 
     vignette_amount: 100.0,
     vignette_midpoint: 100.0,
@@ -542,7 +543,7 @@ fn get_global_adjustments_from_json(
 
     let get_val = |tool: &str, key: &str, scale: f32, default: Option<f64>| -> f32 {
         if is_visible(tool) {
-            js_adjustments[key]
+            adjustment_value(js_adjustments, key)
                 .as_f64()
                 .unwrap_or(default.unwrap_or(0.0)) as f32
                 / scale
@@ -693,8 +694,8 @@ fn get_global_adjustments_from_json(
         wb_log_gain_l: white_balance_gains[0],
         wb_log_gain_m: white_balance_gains[1],
         wb_log_gain_s: white_balance_gains[2],
-        centre_x: get_val("presence", "centréX", 1.0, Some(0.5)),
-        centre_y: get_val("presence", "centréY", 1.0, Some(0.5)),
+        centre_x: get_val("presence", "centreX", 1.0, Some(0.5)),
+        centre_y: get_val("presence", "centreY", 1.0, Some(0.5)),
 
         sharpness: get_val("sharpening", "sharpness", SCALES.sharpness, None),
         luma_noise_reduction: get_val(
@@ -713,7 +714,7 @@ fn get_global_adjustments_from_json(
         clarity: get_val("presence", "clarity", SCALES.clarity, None),
         dehaze: get_val("presence", "dehaze", SCALES.dehaze, None),
         structure: get_val("presence", "structure", SCALES.structure, None),
-        centré: get_val("presence", "centré", SCALES.centré, None),
+        centre: get_val("presence", "centre", SCALES.centre, None),
         vignette_amount: get_val("vignette", "vignetteAmount", SCALES.vignette_amount, None),
         vignette_midpoint: get_val(
             "vignette",
@@ -823,8 +824,8 @@ fn get_global_adjustments_from_json(
         } else {
             0.0
         },
-        _pad2: 0.0,
-        _pad3: 0.0,
+        vignette_frame_cos: 1.0,
+        vignette_frame_sin: 0.0,
 
         color_calibration: color_cal_settings,
 
@@ -841,10 +842,7 @@ fn get_global_adjustments_from_json(
         red_curve_count: red_points.len() as u32,
         green_curve_count: green_points.len() as u32,
         blue_curve_count: blue_points.len() as u32,
-        _pad_end1: 0.0,
-        _pad_end2: 0.0,
-        _pad_end3: 0.0,
-        _pad_end4: 0.0,
+        vignette_frame: [0.0; 4],
 
         glow_amount: get_val("creative", "glowAmount", SCALES.glow, None),
         halation_amount: get_val("creative", "halationAmount", SCALES.halation, None),

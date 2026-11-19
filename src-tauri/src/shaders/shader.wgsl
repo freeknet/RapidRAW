@@ -111,8 +111,8 @@ struct GlobalAdjustments {
     color_grading_global: ColorGradeSettings,
     color_grading_blending: f32,
     color_grading_balance: f32,
-    _pad2: f32,
-    _pad3: f32,
+    vignette_frame_cos: f32,
+    vignette_frame_sin: f32,
 
     color_calibration: ColorCalibrationSettings,
 
@@ -125,10 +125,10 @@ struct GlobalAdjustments {
     red_curve_count: u32,
     green_curve_count: u32,
     blue_curve_count: u32,
-    _pad_end1: f32,
-    _pad_end2: f32,
-    _pad_end3: f32,
-    _pad_end4: f32,
+    vignette_frame_x: f32,
+    vignette_frame_y: f32,
+    vignette_frame_w: f32,
+    vignette_frame_h: f32,
 
     glow_amount: f32,
     halation_amount: f32,
@@ -2300,9 +2300,24 @@ fn main(
         let v_mid = adjustments.global.vignette_midpoint;
         let v_round = 1.0 - adjustments.global.vignette_roundness;
         let v_feather = adjustments.global.vignette_feather * 0.5;
-        let aspect = full_dims_f.y / full_dims_f.x;
+        // The vignette follows the crop frame. The input is normally already cropped, but
+        // the uncropped preview of the crop tool passes the crop rectangle (normalized to
+        // the input, in the rotated frame) so the vignette matches the cropped result.
+        var frame_uv = coord_f / full_dims_f;
+        var frame_dims = full_dims_f;
+        if (adjustments.global.vignette_frame_w > 0.0 && adjustments.global.vignette_frame_h > 0.0) {
+            let c = adjustments.global.vignette_frame_cos;
+            let s = adjustments.global.vignette_frame_sin;
+            let image_center = full_dims_f * 0.5;
+            let d = coord_f - image_center;
+            let rotated = vec2<f32>(c * d.x - s * d.y, s * d.x + c * d.y) + image_center;
+            let frame_center = vec2<f32>(adjustments.global.vignette_frame_x, adjustments.global.vignette_frame_y) * full_dims_f;
+            frame_dims = vec2<f32>(adjustments.global.vignette_frame_w, adjustments.global.vignette_frame_h) * full_dims_f;
+            frame_uv = (rotated - frame_center) / frame_dims + 0.5;
+        }
+        let aspect = frame_dims.y / frame_dims.x;
         let v_center = vec2<f32>(adjustments.global.vignette_center_x, adjustments.global.vignette_center_y);
-        let uv_centered = (coord_f / full_dims_f - v_center) * 2.0;
+        let uv_centered = (frame_uv - v_center) * 2.0;
         let uv_round = sign(uv_centered) * pow(abs(uv_centered), vec2<f32>(v_round, v_round));
         let d = length(uv_round * vec2<f32>(1.0, aspect)) * 0.5;
         let vignette_mask = smoothstep(v_mid - v_feather, v_mid + v_feather, d);

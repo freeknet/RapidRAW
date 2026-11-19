@@ -147,9 +147,9 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "dehaze",
         "sharpness",
         "sharpnessThreshold",
-        "centré",
-        "centréX",
-        "centréY",
+        "centre",
+        "centreX",
+        "centreY",
         "lumaNoiseReduction",
         "colorNoiseReduction",
         "aiDenoiseEnabled",
@@ -1095,6 +1095,7 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         Some(settings) => settings,
         None => {
             let settings = read_settings_from_disk(&app_handle)?;
+            apply_saved_lenses(&settings);
             *settings_cache() = Some(settings.clone());
             settings
         }
@@ -1150,6 +1151,33 @@ fn parse_settings(content: &str) -> AppSettings {
     })
 }
 
+fn rename_legacy_adjustment_keys(copy_paste: &mut CopyPasteSettings) -> bool {
+    let mut renamed = false;
+    for keys in [
+        &mut copy_paste.included_adjustments,
+        &mut copy_paste.known_adjustments,
+    ] {
+        for (current, legacy) in crate::render::adjustment_utils::LEGACY_ADJUSTMENT_KEYS {
+            if keys.remove(legacy) {
+                keys.insert(current.to_string());
+                renamed = true;
+            }
+        }
+    }
+    renamed
+}
+
+fn apply_saved_lenses(settings: &AppSettings) {
+    crate::adjustments::lens_correction::set_saved_lenses(
+        settings
+            .my_lenses
+            .iter()
+            .flatten()
+            .map(|lens| (lens.maker.clone(), lens.model.clone()))
+            .collect(),
+    );
+}
+
 fn read_settings_from_disk(app_handle: &AppHandle) -> Result<AppSettings, String> {
     let path = get_settings_path(app_handle)?;
 
@@ -1199,6 +1227,8 @@ fn read_settings_from_disk(app_handle: &AppHandle) -> Result<AppSettings, String
         settings.ai_cache_limits_migrated_v1 = Some(true);
         settings_modified = true;
     }
+
+    settings_modified |= rename_legacy_adjustment_keys(&mut settings.copy_paste_settings);
 
     let is_first_migration = settings.copy_paste_settings.known_adjustments.is_empty();
 
@@ -1260,6 +1290,7 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
     crate::library::file_ops::write_file_atomic(&path, json_string.as_bytes())
         .map_err(|e| e.to_string())?;
     *settings_cache() = None;
+    apply_saved_lenses(&settings);
     crate::integrations::immich::apply_settings(&settings.immich);
     crate::render::gpu::display::invalidate_displays();
 
@@ -1282,6 +1313,26 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_centre_keys_are_renamed_in_copy_paste_settings() {
+        let mut copy_paste = CopyPasteSettings {
+            included_adjustments: ["centr\u{e9}", "contrast"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+            known_adjustments: ["centr\u{e9}X".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+
+        assert!(rename_legacy_adjustment_keys(&mut copy_paste));
+        assert!(copy_paste.included_adjustments.contains("centre"));
+        assert!(copy_paste.included_adjustments.contains("contrast"));
+        assert!(!copy_paste.included_adjustments.contains("centr\u{e9}"));
+        assert!(copy_paste.known_adjustments.contains("centreX"));
+        assert!(!rename_legacy_adjustment_keys(&mut copy_paste));
+        assert!(all_available_adjustments().iter().all(|key| key.is_ascii()));
+    }
 
     #[test]
     fn baseline_exposure_is_on_by_default_but_keeps_a_saved_choice() {

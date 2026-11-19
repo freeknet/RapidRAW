@@ -90,9 +90,9 @@ export enum DetailsAdjustment {
   Clarity = 'clarity',
   Dehaze = 'dehaze',
   Structure = 'structure',
-  Centré = 'centré',
-  CentréX = 'centréX',
-  CentréY = 'centréY',
+  Centre = 'centre',
+  CentreX = 'centreX',
+  CentreY = 'centreY',
   ColorNoiseReduction = 'colorNoiseReduction',
   LumaNoiseReduction = 'lumaNoiseReduction',
   NegativeBlueWeight = 'negativeBlueWeight',
@@ -297,9 +297,9 @@ export interface Adjustments {
   baselineExposure: boolean;
   blacks: number;
   brightness: number;
-  centré: number;
-  centréX: number;
-  centréY: number;
+  centre: number;
+  centreX: number;
+  centreY: number;
   clarity: number;
   chromaticAberrationBlueYellow: number;
   chromaticAberrationRedCyan: number;
@@ -731,10 +731,40 @@ export type CropGeometry = Pick<Adjustments, (typeof CROP_GEOMETRY_KEYS)[number]
 export const pickCropGeometry = (adjustments: Adjustments): CropGeometry =>
   Object.fromEntries(CROP_GEOMETRY_KEYS.map((key) => [key, structuredClone(adjustments[key])])) as CropGeometry;
 
-export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments): any => {
-  if (!loadedAdjustments) {
+// Adjustment keys that were renamed, as [current, legacy]. Sidecars and presets written
+// before the rename still carry the legacy key.
+const LEGACY_ADJUSTMENT_KEYS: ReadonlyArray<[string, string]> = [
+  ['centre', 'centr\u00e9'],
+  ['centreX', 'centr\u00e9X'],
+  ['centreY', 'centr\u00e9Y'],
+];
+
+// Moves values stored under a legacy key to the current key. The current key wins when
+// both are present. Returns the input unchanged when there is nothing to migrate.
+export const migrateLegacyAdjustmentKeys = <T>(adjustments: T): T => {
+  if (!adjustments || typeof adjustments !== 'object') {
+    return adjustments;
+  }
+  const source = adjustments as Record<string, unknown>;
+  if (!LEGACY_ADJUSTMENT_KEYS.some(([, legacy]) => legacy in source)) {
+    return adjustments;
+  }
+  const migrated: Record<string, unknown> = { ...source };
+  for (const [current, legacy] of LEGACY_ADJUSTMENT_KEYS) {
+    if (!(legacy in migrated)) continue;
+    if (migrated[current] === undefined) {
+      migrated[current] = migrated[legacy];
+    }
+    delete migrated[legacy];
+  }
+  return migrated as T;
+};
+
+export const normalizeLoadedAdjustments = (rawAdjustments: Adjustments): any => {
+  if (!rawAdjustments) {
     return INITIAL_ADJUSTMENTS;
   }
+  const loadedAdjustments = migrateLegacyAdjustmentKeys(rawAdjustments);
 
   const normalizeSubMasks = (subMasks: any[]) => {
     return (subMasks || []).map((subMask: Partial<SubMask>) => ({
@@ -936,9 +966,9 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.Clarity,
         DetailsAdjustment.Structure,
         DetailsAdjustment.Dehaze,
-        DetailsAdjustment.Centré,
-        DetailsAdjustment.CentréX,
-        DetailsAdjustment.CentréY,
+        DetailsAdjustment.Centre,
+        DetailsAdjustment.CentreX,
+        DetailsAdjustment.CentreY,
       ],
     },
     {
@@ -1160,9 +1190,9 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     DetailsAdjustment.Clarity,
     DetailsAdjustment.Dehaze,
     DetailsAdjustment.Structure,
-    DetailsAdjustment.Centré,
-    DetailsAdjustment.CentréX,
-    DetailsAdjustment.CentréY,
+    DetailsAdjustment.Centre,
+    DetailsAdjustment.CentreX,
+    DetailsAdjustment.CentreY,
     DetailsAdjustment.Sharpness,
     DetailsAdjustment.SharpnessThreshold,
     DetailsAdjustment.LumaNoiseReduction,
@@ -1268,8 +1298,8 @@ const CANVAS_ADJUSTMENT_KEYS = new Set([
   'vignetteCenterY',
   'vignetteMidpoint',
   'vignetteRoundness',
-  'centréX',
-  'centréY',
+  'centreX',
+  'centreY',
   'relightLights',
 ]);
 
