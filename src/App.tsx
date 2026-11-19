@@ -464,6 +464,7 @@ function App() {
     executeDelete,
     handleDeleteRejected,
     handleTogglePinFolder,
+    handleSelectSubfolder: (path: string) => handleSelectSubfolder(path),
   });
 
   useImmichEvents(handleLibraryRefresh);

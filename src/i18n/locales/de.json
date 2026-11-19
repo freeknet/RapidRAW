@@ -394,6 +394,7 @@
       "deleteSelected": "Nur Ausgewählte löschen",
       "denoise_one": "Entrauschen",
       "denoise_other": "Entrauschen",
+      "showOriginalLocation": "Am Originalort anzeigen",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "Bild duplizieren",

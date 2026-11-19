@@ -394,6 +394,7 @@
       "deleteSelected": "選択したもののみ削除",
       "denoise_one": "ノイズ低減",
       "denoise_other": "ノイズ低減",
+      "showOriginalLocation": "元の場所に表示",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "画像を複製",

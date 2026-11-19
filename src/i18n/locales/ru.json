@@ -418,6 +418,7 @@
       "denoise_many": "Шумоподавление",
       "denoise_one": "Шумоподавление",
       "denoise_other": "Шумоподавление",
+      "showOriginalLocation": "Показать в исходной папке",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",

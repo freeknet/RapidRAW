@@ -406,6 +406,7 @@
       "denoise_many": "Riduci Rumore",
       "denoise_one": "Riduci Rumore",
       "denoise_other": "Riduci Rumore",
+      "showOriginalLocation": "Mostra nella posizione originale",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",

@@ -394,6 +394,7 @@
       "deleteSelected": "Delete Selected Only",
       "denoise_one": "Denoise",
       "denoise_other": "Denoise",
+      "showOriginalLocation": "Show in Original Location",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "Duplicate Image",

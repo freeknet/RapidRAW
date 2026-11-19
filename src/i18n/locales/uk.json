@@ -418,6 +418,7 @@
       "denoise_many": "Зменшення шуму",
       "denoise_one": "Зменшення шуму",
       "denoise_other": "Зменшення шуму",
+      "showOriginalLocation": "Показати в початковій теці",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",

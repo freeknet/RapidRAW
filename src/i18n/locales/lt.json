@@ -418,6 +418,7 @@
       "denoise_many": "Triukšmo slopinimas",
       "denoise_one": "Triukšmo slopinimas",
       "denoise_other": "Triukšmo slopinimas",
+      "showOriginalLocation": "Rodyti pradinėje vietoje",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",

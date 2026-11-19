@@ -394,6 +394,7 @@
       "deleteSelected": "Alleen geselecteerde verwijderen",
       "denoise_one": "Ruis verwijderen",
       "denoise_other": "Ruis verwijderen",
+      "showOriginalLocation": "Tonen op originele locatie",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "Afbeelding dupliceren",

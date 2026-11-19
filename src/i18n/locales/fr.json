@@ -406,6 +406,7 @@
       "denoise_many": "Débruiter",
       "denoise_one": "Débruiter",
       "denoise_other": "Débruiter",
+      "showOriginalLocation": "Afficher dans l'emplacement d'origine",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",

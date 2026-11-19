@@ -418,6 +418,7 @@
       "denoise_many": "Odšumit",
       "denoise_one": "Odšumit",
       "denoise_other": "Odšumit",
+      "showOriginalLocation": "Zobrazit v původním umístění",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",

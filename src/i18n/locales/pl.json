@@ -418,6 +418,7 @@
       "denoise_many": "Odszumianie",
       "denoise_one": "Odszumianie",
       "denoise_other": "Odszumianie",
+      "showOriginalLocation": "Pokaż w oryginalnej lokalizacji",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",

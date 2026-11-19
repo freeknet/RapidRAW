@@ -406,6 +406,7 @@
       "denoise_many": "Reduir soroll",
       "denoise_one": "Reduir soroll",
       "denoise_other": "Reduir soroll",
+      "showOriginalLocation": "Mostra a la ubicació original",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",

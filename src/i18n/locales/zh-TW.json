@@ -394,6 +394,7 @@
       "deleteSelected": "僅刪除選中項",
       "denoise_one": "降噪",
       "denoise_other": "降噪",
+      "showOriginalLocation": "在原始位置顯示",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "複製影像",
