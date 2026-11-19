@@ -67,6 +67,12 @@ export type GroupPreference = 'jpeg' | 'raw';
 
 export type ExportDialogFolder = 'lastUsed' | 'source';
 
+export interface LastImportSettings {
+  filenameTemplate?: string;
+  organizeByDate?: boolean;
+  dateFolderFormat?: string;
+}
+
 export type GroupingMode = 'off' | GroupPreference;
 
 export type CompareView = 'off' | 'vertical' | 'horizontal' | 'sideBySide';
@@ -133,6 +139,7 @@ export interface AppSettings {
   linuxGpuOptimization?: boolean;
   exportDialogFolder?: ExportDialogFolder;
   exportPresets?: ExportPreset[];
+  lastImportSettings?: LastImportSettings;
   myLenses?: any;
   customAspectRatios?: CustomAspectRatio[];
   editInApps?: EditInApp[];
