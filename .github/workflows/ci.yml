@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+# Builds of main are superseded by the next push; only the latest is worth finishing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -66,5 +71,7 @@ jobs:
       asset-prefix: ${{ matrix.asset-prefix }}
       mobile: ${{ matrix.mobile }}
     secrets: inherit
+    # These builds upload workflow artifacts only (no release id is passed),
+    # so the job never writes to the repository.
     permissions:
-      contents: write
+      contents: read

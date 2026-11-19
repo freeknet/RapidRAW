@@ -1,2 +1,15 @@
+# The toolchain everything is built, linted and tested with.
+#
+# Pinned to an exact release, and pinned here rather than only in CI, because
+# rustup reads this file for the directory: a local `cargo clippy` and the one
+# CI runs are then the same clippy. With a floating channel, CI installs
+# whatever patch or minor release is current on the day it runs, and a lint
+# added in a new release fires there while an older local toolchain cannot
+# see it.
+#
+# The workflows in .github/workflows name the same version so the setup action
+# installs it up front; src-tauri/tests/toolchain_pin.rs fails if they drift
+# apart. Bump all of them together in one commit.
 [toolchain]
-channel = "1.98"
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]

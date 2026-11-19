@@ -409,6 +409,9 @@ fn set_current_thread_background(background: bool) {
     } else {
         THREAD_PRIORITY_NORMAL
     };
+    // SAFETY: `GetCurrentThread` returns a pseudo-handle for the calling thread
+    // that needs no closing and is valid for the two priority calls, which take
+    // no pointers; their results are deliberately ignored.
     unsafe {
         let thread = GetCurrentThread();
         let _ = SetThreadPriority(thread, priority);
@@ -418,6 +421,9 @@ fn set_current_thread_background(background: bool) {
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn set_current_thread_background(background: bool) {
+    // SAFETY: `gettid` takes no arguments and cannot fail, and `setpriority` only
+    // receives integers. On Linux, `PRIO_PROCESS` with a thread id changes just
+    // that thread's nice value; on failure the priority is simply unchanged.
     unsafe {
         let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
         libc::setpriority(libc::PRIO_PROCESS, tid, if background { 10 } else { 0 });
@@ -431,6 +437,8 @@ fn set_current_thread_background(background: bool) {
     } else {
         libc::qos_class_t::QOS_CLASS_USER_INITIATED
     };
+    // SAFETY: sets the QoS class of the calling thread only, with a valid class
+    // constant and a relative priority of 0; it takes no pointers.
     unsafe {
         libc::pthread_set_qos_class_self_np(class, 0);
     }

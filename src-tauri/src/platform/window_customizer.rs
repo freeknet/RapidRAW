@@ -5,6 +5,12 @@ pub struct PinchZoomDisablePlugin;
 #[cfg(target_os = "macos")]
 const MACOS_WINDOW_RADIUS: f64 = 14.0;
 
+/// Rounds the corners of the window that hosts `ns_view`.
+///
+/// # Safety
+///
+/// `ns_view` must be null or point to a live `NSView` (the WKWebView), and this
+/// must be called on the main thread, as AppKit requires.
 #[cfg(target_os = "macos")]
 unsafe fn apply_macos_window_rounding(ns_view: *mut objc::runtime::Object) {
     use objc::{msg_send, sel, sel_impl};
@@ -55,11 +61,19 @@ impl<R: Runtime> Plugin<R> for PinchZoomDisablePlugin {
     fn webview_created(&mut self, webview: Webview<R>) {
         let _ = webview.with_webview(|_webview| {
             #[cfg(target_os = "macos")]
+            // SAFETY: `inner()` is the live WKWebView that wry just created, and
+            // `with_webview` runs this closure on the main thread, which is what
+            // `apply_macos_window_rounding` requires.
             unsafe {
                 apply_macos_window_rounding(_webview.inner().cast());
             }
 
             #[cfg(target_os = "linux")]
+            // SAFETY: WebKitGTK stores the `GtkGestureZoom` it attaches to the view
+            // under the "wk-view-zoom-gesture" key, so reading that data as
+            // `GestureZoom` uses the type it was stored with. The pointer is only
+            // used while the webview, which owns the gesture, is alive, and
+            // destroying its signal handlers just turns pinch zoom off.
             unsafe {
                 use gtk::GestureZoom;
                 use gtk::glib::ObjectExt;

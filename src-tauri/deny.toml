@@ -1,0 +1,135 @@
+# cargo-deny configuration. Enforced in CI by the `deny` job in
+# .github/workflows/lint.yml; `cargo install cargo-deny --locked` and then
+# `cargo deny check` from src-tauri/ gives the same answer before you push.
+# The point is that a new advisory, a surprising licence or a new git source
+# shows up as a reviewable event rather than a release-day surprise.
+#
+# Dependabot (.github/dependabot.yml) is the other half: it opens the
+# version-update PRs, and the deny job runs against each one.
+
+[graph]
+# The targets RapidRAW actually ships for (see the matrix in
+# .github/workflows/release.yml). Without this, cargo-deny resolves the graph
+# for every target rustc knows, and crates that no shipped build links would
+# gate a release.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-linux-android",
+]
+# `tethering` pulls in gphoto2 on macOS and Linux, and those builds ship too.
+all-features = true
+
+[advisories]
+# A yanked crate is a warning, not an error: yanking is often administrative,
+# and blocking a build on someone else's `cargo yank` is not a security
+# posture.
+yanked = "warn"
+# Only crates that RapidRAW depends on directly are reported as unmaintained.
+# An unmaintained crate deep in tauri's or the GTK stack's graph is not
+# something this repository can act on, and failing on it would train people
+# to ignore this job. Vulnerabilities are reported for the whole graph.
+unmaintained = "workspace"
+# Each entry says which crate, what pulls it in, and what would clear it. An
+# entry without a way out is a permanent exception, so add one only with that
+# information in the same commit. cargo-deny cannot downgrade a single
+# advisory to a warning, so an ignore here is the closest equivalent: each one
+# is listed for a reason and should be removed as soon as it clears.
+ignore = [
+    # chrono, a direct dependency: flagged unmaintained, no fixed release.
+    # Clears by migrating date handling to jiff (or chrono being revived).
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no fixed release; clears on migrating to jiff" },
+
+    # quick-xml 0.37 via little_exif (our own direct quick-xml is already
+    # 0.41). Clears when little_exif moves to quick-xml >= 0.41. Only parses
+    # XMP embedded in files the user opens.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.37 via little_exif; clears when little_exif requires quick-xml >= 0.41" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.37 via little_exif; clears when little_exif requires quick-xml >= 0.41" },
+
+    # The entries below all have semver-compatible fixed releases already. They
+    # clear with a lockfile-only update, kept out of the commit that added this
+    # file so it would not conflict with concurrent dependency changes:
+    #   cargo update -p ctutils -p rustls -p rustls-webpki -p tokio \
+    #     -p webpki-roots -p webpki-root-certs
+    # Remove each entry in the same commit as that update.
+    { id = "RUSTSEC-2026-0385", reason = "ctutils 0.4.2 via digest; fixed in 0.4.4, clears with cargo update -p ctutils" },
+    { id = "RUSTSEC-2026-0285", reason = "rustls 0.23.43; fixed in 0.23.45, clears with cargo update -p rustls" },
+    { id = "RUSTSEC-2026-0346", reason = "rustls 0.23.43; fixed in 0.23.46, clears with cargo update -p rustls" },
+    { id = "RUSTSEC-2026-0348", reason = "rustls 0.23.43; fixed in 0.23.46, clears with cargo update -p rustls" },
+    { id = "RUSTSEC-2026-0349", reason = "rustls 0.23.43; fixed in 0.23.46, clears with cargo update -p rustls" },
+    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.103.15; fixed in 0.103.16, clears with cargo update -p rustls-webpki" },
+    { id = "RUSTSEC-2026-0386", reason = "tokio 1.53.1 AsyncFd unsoundness; fixed in 1.53.3, clears with cargo update -p tokio" },
+    { id = "RUSTSEC-2026-0381", reason = "webpki-roots 1.0.9; fixed in 1.0.10, clears with cargo update -p webpki-roots" },
+    { id = "RUSTSEC-2026-0383", reason = "webpki-root-certs 1.0.9 via ureq; fixed in 1.0.10, clears with cargo update -p webpki-root-certs" },
+]
+
+[licenses]
+# RapidRAW itself is AGPL-3.0 (see LICENSE at the repo root), so copyleft
+# dependencies that are compatible with it are acceptable. Each licence below
+# is here because something in the graph uses it; anything new must be added
+# deliberately rather than slipping in under a broad "permissive" allowance.
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "0BSD",
+    "Unlicense",
+    # ryu
+    "BSL-1.0",
+    # blake3, constant_time_eq, dunce, hexf-parse, imgref
+    "CC0-1.0",
+    # cssparser, selectors, dtoa-short (via tauri/wry), option-ext (via dirs)
+    "MPL-2.0",
+    # webpki-roots / webpki-root-certs, the Mozilla CA bundle
+    "CDLA-Permissive-2.0",
+    # rawler (git dependency, see [sources]), the RAW decoder. Its Cargo.toml
+    # uses the deprecated SPDX spelling, which cargo-deny warns about.
+    "LGPL-2.1",
+    # jxl-encoder and jxl-encoder-simd are dual licensed AGPL-3.0-only OR a
+    # commercial licence; the AGPL option matches RapidRAW's own licence.
+    "AGPL-3.0-only",
+]
+# A crate whose licence cannot be determined with confidence is a stop, not a
+# warning.
+confidence-threshold = 0.9
+
+[licenses.private]
+# The app crate does not declare a `license` field in Cargo.toml (its licence
+# is the AGPL-3.0 LICENSE file at the repo root) and is not published to
+# crates.io, so it is not checked against the list above.
+ignore = true
+
+[bans]
+# Duplicate versions are normal in a graph this size (tauri, wgpu and the
+# image stack disagree about several shared crates), so this warns rather
+# than fails. It is still worth reading: a stale transitive pin looks the
+# same.
+multiple-versions = "warn"
+wildcards = "allow"
+# Nothing is banned outright. If something is added, say what to use instead.
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Git dependencies move only when Cargo.lock is updated, but they skip the
+# crates.io publishing record, so each one is allowed by name with its reason.
+allow-git = [
+    # rawler: the RAW decoder, maintained as a RapidRAW fork of dnglab with
+    # camera support and fixes that are not published to crates.io.
+    "https://github.com/CyberTimon/RapidRAW-DngLab.git",
+    # gphoto2 / gphoto2-sys: camera tethering on macOS and Linux (the
+    # optional `tethering` feature), a fork of libgphoto2-rs.
+    "https://github.com/CyberTimon/libgphoto2-rs",
+]

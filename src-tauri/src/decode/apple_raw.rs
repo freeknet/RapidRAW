@@ -36,6 +36,10 @@ mod imp {
     }
 
     fn make_filter(bytes: Option<&[u8]>, path: &str) -> Option<Retained<CIRAWFilter>> {
+        // SAFETY: these are Core Image and Foundation constructors called through
+        // objc2's typed bindings with valid, retained arguments. `NSData::with_bytes`
+        // copies `bytes`, so nothing returned borrows the slice, and a nil result is
+        // surfaced as `None` rather than dereferenced.
         unsafe {
             if std::path::Path::new(path).exists() {
                 let url = NSURL::fileURLWithPath(&NSString::from_str(path));
@@ -56,6 +60,8 @@ mod imp {
     }
 
     fn pick_raw9_version(filter: &CIRAWFilter, prefer_dng: bool) -> Option<Retained<NSString>> {
+        // SAFETY: `filter` is a valid, retained CIRAWFilter, and the getter returns a
+        // retained NSArray of NSString that is only read.
         let versions = unsafe { filter.supportedDecoderVersions() };
 
         let mut plain: Option<Retained<NSString>> = None;
@@ -85,6 +91,9 @@ mod imp {
     }
 
     fn configure(filter: &CIRAWFilter) {
+        // SAFETY: plain property setters on a valid, retained CIRAWFilter with
+        // scalar arguments. Each optional property is only set after its
+        // `is...Supported` getter reports that the filter has it.
         unsafe {
             filter.setBoostAmount(0.0);
             filter.setBaselineExposure(0.0);
@@ -109,6 +118,13 @@ mod imp {
     }
 
     fn render_rgba_f32(filter: &CIRAWFilter) -> Result<DynamicImage> {
+        // SAFETY: the only call given a raw pointer is `render_toBitmap...`. It
+        // writes the `extent` rectangle as RGBA f32 (`kCIFormatRGBAf`), `row_bytes`
+        // per row, into `data_ptr`, which points at `buf`: a live allocation of
+        // exactly `width * height * 4` f32s that nothing else touches until the
+        // call returns. A RAW filter's output extent is an integral pixel
+        // rectangle, so the rounded `width` and `height` are its exact size. The
+        // remaining calls are objc2 bindings on valid, retained objects.
         unsafe {
             let image = filter
                 .outputImage()
@@ -184,6 +200,8 @@ mod imp {
                 )
             })?;
 
+            // SAFETY: `version` is one of the strings this filter reported in
+            // `supportedDecoderVersions`, and `filter` is a valid, retained object.
             unsafe { filter.setDecoderVersion(&version) };
             configure(&filter);
 

@@ -158,13 +158,50 @@ opt-level = 2
 debug = 1
 incremental = true
 
+# Dependencies keep file and line numbers, so backtraces still name the line
+# inside wgpu or rawler, but not full type and variable information. Most of a
+# small debug rebuild on Windows is the linker writing the PDB, and that work
+# scales with the debuginfo it is given. A debugger stopped inside a
+# dependency shows the line but not the locals.
 [profile.dev.package."*"]
 opt-level = 3
+debug = "line-tables-only"
 
 [profile.release]
 codegen-units = 1
 lto = true
 strip = true
 
+# An optimized build for day-to-day work: `cargo build --profile release-fast`
+# (or `npm run tauri build -- --profile release-fast`). Same opt-level and
+# stripping as `release`, but without LTO and with incremental compilation, so
+# a one-line edit does not re-run whole-program optimization over every
+# dependency on a single codegen unit. Not the binary that ships, and not the
+# one to measure the app's own performance with.
+[profile.release-fast]
+inherits = "release"
+lto = false
+incremental = true
+# Dependencies at rustc's release default; they build once.
+codegen-units = 16
+
+# The app crate at 256 units, rustc's default for incremental builds, so an
+# edit invalidates only the few units that hold the changed functions.
+[profile.release-fast.package.RapidRAW]
+codegen-units = 256
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
+[lints.clippy]
+# Placeholders and debug output never belong in a commit.
+todo = "deny"
+dbg_macro = "deny"
+# Every `unsafe` block and impl explains its invariant in a `// SAFETY:` comment.
+undocumented_unsafe_blocks = "deny"
+# Burn-down targets, not yet enforced: a few hundred `unwrap`/`expect` calls
+# predate this table, and CI runs clippy with `-D warnings`, so "warn" would fail
+# every build. Raise these to "warn" once the existing calls have been replaced
+# with proper error handling, module by module.
+unwrap_used = "allow"
+expect_used = "allow"

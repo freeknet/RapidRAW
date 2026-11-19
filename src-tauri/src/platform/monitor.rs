@@ -86,12 +86,23 @@ mod platform {
         path: Option<DISPLAYCONFIG_PATH_INFO>,
     }
 
+    /// Queries one `DisplayConfigGetDeviceInfo` packet.
+    ///
+    /// # Safety
+    ///
+    /// `T` must be the `DISPLAYCONFIG_*` packet struct that matches `kind`, which
+    /// like all of them starts with a `DISPLAYCONFIG_DEVICE_INFO_HEADER`.
     unsafe fn device_info<T: Default>(
         kind: DISPLAYCONFIG_DEVICE_INFO_TYPE,
         adapter: LUID,
         id: u32,
     ) -> Option<T> {
         let mut info = T::default();
+        // SAFETY: by this function's contract `T` begins with a
+        // `DISPLAYCONFIG_DEVICE_INFO_HEADER`, so the cast pointer is valid and
+        // aligned for the header fields written here. `size` is set to the full
+        // size of `T`, so the API writes only within `info`, which outlives the
+        // call. `info` is returned only when the call reports success.
         unsafe {
             let header = core::ptr::from_mut(&mut info).cast::<DISPLAYCONFIG_DEVICE_INFO_HEADER>();
             (*header).r#type = kind;
@@ -103,6 +114,11 @@ mod platform {
     }
 
     unsafe fn config_path(device: &[u16; 32]) -> Option<DISPLAYCONFIG_PATH_INFO> {
+        // SAFETY: `QueryDisplayConfig` gets buffers allocated with exactly the
+        // element counts `GetDisplayConfigBufferSizes` returned and those counts
+        // by pointer, so it writes within the vectors and reports how many entries
+        // are valid; only that many are read. `device_info` is called with
+        // `DISPLAYCONFIG_SOURCE_DEVICE_NAME`, the packet for `GET_SOURCE_NAME`.
         unsafe {
             let (mut path_count, mut mode_count) = (0u32, 0u32);
             if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
@@ -139,6 +155,11 @@ mod platform {
             return None;
         };
         let hwnd = HWND(handle.hwnd.get() as *mut core::ffi::c_void);
+        // SAFETY: `MonitorFromWindow` accepts any HWND and falls back to the
+        // nearest monitor. `GetMonitorInfoW` is given a pointer to a local
+        // `MONITORINFOEXW` whose `cbSize` says it is the extended struct, which
+        // starts with a `MONITORINFO`, so the cast is valid and the API writes
+        // only within it.
         unsafe {
             let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
             if monitor.is_invalid() {
@@ -164,10 +185,16 @@ mod platform {
         kind: DISPLAYCONFIG_DEVICE_INFO_TYPE,
     ) -> Option<T> {
         let path = monitor.path.as_ref()?;
+        // SAFETY: the caller upholds `device_info`'s contract that `T` matches
+        // `kind`; this function has the same contract.
         unsafe { device_info(kind, path.targetInfo.adapterId, path.targetInfo.id) }
     }
 
     unsafe fn output(monitor: &Monitor) -> Option<DXGI_OUTPUT_DESC1> {
+        // SAFETY: DXGI COM calls through the `windows` crate's typed wrappers. The
+        // factory, adapters and outputs are owned, reference-counted interfaces
+        // alive for each call, no raw pointers are passed, and every HRESULT is
+        // checked before its result is used.
         unsafe {
             let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
             (0..)
@@ -179,6 +206,8 @@ mod platform {
     }
 
     unsafe fn sdr_white_nits(monitor: &Monitor, fallback: f32) -> f32 {
+        // SAFETY: `DISPLAYCONFIG_SDR_WHITE_LEVEL` is the packet type for
+        // `DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL`, as `target_info` requires.
         unsafe {
             target_info::<DISPLAYCONFIG_SDR_WHITE_LEVEL>(
                 monitor,
@@ -196,6 +225,8 @@ mod platform {
         if output.ColorSpace != DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 {
             return None;
         }
+        // SAFETY: `sdr_white_nits` only issues a correctly typed device-info query
+        // for `monitor`; it has no requirements beyond a valid `Monitor`.
         let white_nits = unsafe { sdr_white_nits(monitor, FALLBACK_SDR_WHITE_NITS) };
         let headroom = output.MaxLuminance / white_nits;
         Some(HdrDisplay {
@@ -209,6 +240,12 @@ mod platform {
     }
 
     unsafe fn color(monitor: &Monitor, output: Option<&DXGI_OUTPUT_DESC1>) -> Option<SystemColor> {
+        // SAFETY: the device-info query uses the packet type that matches its
+        // kind. `monitor.device` is the NUL-terminated GDI device name returned by
+        // `GetMonitorInfoW`, so it is a valid PCWSTR for `CreateDCW`; the DC is
+        // checked for validity and deleted after use. `GetICMProfileW` writes at
+        // most `length` UTF-16 units into the local `name` buffer, whose capacity
+        // `length` holds.
         unsafe {
             let advanced_color = target_info::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>(
                 monitor,
@@ -247,6 +284,9 @@ mod platform {
         want_hdr: bool,
         want_color: bool,
     ) -> Option<MonitorState> {
+        // SAFETY: the helpers' only requirement is a valid window handle and the
+        // `Monitor` built from it; the handle comes from a live tauri window, and
+        // each helper checks its own Win32 results.
         unsafe {
             let monitor = monitor(window.window_handle().ok()?.as_raw())?;
             let output = output(&monitor);
@@ -264,6 +304,10 @@ mod platform {
         use windows::Win32::Graphics::Dxgi::Common::{
             DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
         };
+        // SAFETY: the hal surface is only borrowed for the rest of this function
+        // and is used for a call wgpu does not track (setting the swap chain's
+        // color space), which does not invalidate any state wgpu relies on. It
+        // returns `None` when the surface is not a DX12 one.
         let Some(surface) = (unsafe { surface.as_hal::<wgpu::hal::api::Dx12>() }) else {
             return;
         };
@@ -274,6 +318,8 @@ mod platform {
             SurfaceTag::Hdr => DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
             _ => DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
         };
+        // SAFETY: `swap_chain` is the live swap chain of this surface, held through
+        // the guard above, and `space` is a valid color space constant.
         if let Err(e) = unsafe { swap_chain.SetColorSpace1(space) } {
             log::warn!("Cannot set the swap chain color space: {}", e);
         }
@@ -304,6 +350,10 @@ mod platform {
             return None;
         };
         let view = handle.ns_view.as_ptr().cast::<AnyObject>();
+        // SAFETY: `view` is the live NSView of this tauri window. Each message is
+        // sent to an object checked for nil first, with the selector's real
+        // argument and return types (`window` and `screen` return object
+        // pointers, the EDR query a CGFloat, `canRepresentDisplayGamut:` a BOOL).
         unsafe {
             let window: *mut AnyObject = msg_send![view, window];
             if window.is_null() {
@@ -341,6 +391,8 @@ mod platform {
     }
 
     pub fn tag_surface(surface: &wgpu::Surface, tag: SurfaceTag) {
+        // SAFETY: only reads Core Graphics' immutable color space name constants,
+        // which are initialized by the framework before any Rust code runs.
         let name = unsafe {
             match tag {
                 SurfaceTag::Unmanaged => None,
@@ -353,6 +405,9 @@ mod platform {
             }
         };
         let color_space = name.and_then(|name| CGColorSpace::with_name(Some(name)));
+        // SAFETY: the hal surface is only borrowed for this block and used to set
+        // the color space of its CAMetalLayer, which wgpu does not track and which
+        // does not invalidate any wgpu state. It is `None` for non-Metal surfaces.
         if let Some(surface) = unsafe { surface.as_hal::<wgpu::hal::api::Metal>() } {
             surface
                 .render_layer()

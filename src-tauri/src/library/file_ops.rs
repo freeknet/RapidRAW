@@ -68,7 +68,11 @@ pub fn is_cloud_placeholder(path: &Path) -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
+    // SAFETY: `libc::stat` is a plain C struct of integers, for which all-zero
+    // bytes are a valid value.
     let mut stat_buf: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `c_path` is a NUL-terminated C string that lives until the end of
+    // the function, and `stat_buf` is a valid, writable `stat` for the call.
     let ret = unsafe { libc::lstat(c_path.as_ptr(), &mut stat_buf) };
     ret == 0 && (stat_buf.st_flags & SF_DATALESS) != 0
 }
@@ -93,6 +97,13 @@ pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
     if let Err(fs::TryLockError::WouldBlock) = file.try_lock_shared() {
         return Err(ReadFileError::Locked);
     }
+    // SAFETY: a memory map is only sound while no one modifies or truncates the
+    // file underneath it. The shared lock taken above keeps RapidRAW's own writers
+    // (which replace files atomically rather than writing in place) and other
+    // lock-respecting programs out where the filesystem supports locking; an
+    // unrelated process truncating the file mid-read remains possible and is the
+    // accepted risk of mapping instead of reading large RAW files. The map is
+    // read-only and its length is the file size at open time.
     let mmap = unsafe {
         MmapOptions::new()
             .len(file.metadata().map_err(ReadFileError::Io)?.len() as usize)
@@ -203,6 +214,8 @@ fn sync_file(file: &fs::File) -> std::io::Result<()> {
             #[cfg(target_vendor = "apple")]
             {
                 use std::os::fd::AsRawFd;
+                // SAFETY: `fsync` only takes a file descriptor, and `file` keeps that
+                // descriptor open for the duration of the call.
                 if unsafe { libc::fsync(file.as_raw_fd()) } != 0 {
                     let e = std::io::Error::last_os_error();
                     if !is_sync_unsupported(&e) {
@@ -1165,7 +1178,80 @@ pub fn rename_files(
 
 #[cfg(test)]
 mod tests {
-    use super::deletion_stem_for;
+    use super::*;
+    use chrono::TimeZone;
+
+    /// A fixed instant built from local wall-clock time, so the date tokens
+    /// read back the same regardless of the machine's time zone.
+    fn local_date(y: i32, mo: u32, d: u32, h: u32, mi: u32, s: u32) -> DateTime<Utc> {
+        chrono::Local
+            .with_ymd_and_hms(y, mo, d, h, mi, s)
+            .earliest()
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn render(template: &str, file: &str, sequence: usize, total: usize) -> String {
+        generate_filename_from_template(
+            template,
+            Path::new(file),
+            sequence,
+            total,
+            &local_date(2024, 3, 7, 9, 5, 2),
+        )
+    }
+
+    #[test]
+    fn original_filename_is_the_stem_without_extension() {
+        assert_eq!(
+            render("{original_filename}_edited", "DSC01234.ARW", 1, 1),
+            "DSC01234_edited"
+        );
+    }
+
+    #[test]
+    fn original_filename_number_is_the_trailing_digits() {
+        assert_eq!(
+            render("{original_filename_number}", "DSC01234.ARW", 1, 1),
+            "01234"
+        );
+        assert_eq!(
+            render("x{original_filename_number}x", "sunset.jpg", 1, 1),
+            "xx"
+        );
+    }
+
+    #[test]
+    fn sequence_is_zero_padded_to_the_width_of_the_total() {
+        assert_eq!(render("{sequence}", "a.jpg", 7, 9), "7");
+        assert_eq!(render("{sequence}", "a.jpg", 7, 10), "07");
+        assert_eq!(render("{sequence}", "a.jpg", 42, 250), "042");
+        assert_eq!(render("{sequence}", "a.jpg", 3, 0), "3");
+    }
+
+    #[test]
+    fn date_and_time_tokens_use_two_digit_fields() {
+        assert_eq!(
+            render("{YYYY}-{MM}-{DD}_{hh}{mm}{ss}", "a.jpg", 1, 1),
+            "2024-03-07_090502"
+        );
+    }
+
+    #[test]
+    fn unknown_tokens_and_literal_text_are_left_alone() {
+        assert_eq!(
+            render("{camera}_{original_filename} final", "IMG_1.CR3", 1, 1),
+            "{camera}_IMG_1 final"
+        );
+    }
+
+    #[test]
+    fn tokens_can_repeat() {
+        assert_eq!(
+            render("{sequence}-{original_filename}-{sequence}", "a.jpg", 2, 12),
+            "02-a-02"
+        );
+    }
 
     #[test]
     fn xmp_sidecars_are_deleted_with_their_image() {

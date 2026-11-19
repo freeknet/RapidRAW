@@ -102,6 +102,13 @@ impl WaylandSubsurface {
             .ok_or("Wayland connection has no wl_display")?;
         let surface = NonNull::new(self.inner.surface.id().as_ptr() as *mut c_void)
             .ok_or("Subsurface has no wl_surface")?;
+        // SAFETY: wgpu requires both handles to stay valid for as long as the
+        // returned surface exists. `display` is GTK's wl_display, which lives for
+        // the whole GTK session, and `surface` is the wl_surface owned by
+        // `self.inner`, destroyed only when `Inner` drops. Callers keep this
+        // `WaylandSubsurface` next to the surface (`WgpuDisplay::wayland`, declared
+        // after `WgpuDisplay::surface`, so the surface is dropped first) and only
+        // reuse it to create a replacement surface.
         unsafe {
             instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
                 raw_display_handle: Some(RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
@@ -128,10 +135,16 @@ pub fn create(window: &tauri::WebviewWindow) -> Result<WaylandSubsurface, String
     let toplevel = window.gtk_window().map_err(|e| e.to_string())?;
     let content = window.default_vbox().map_err(|e| e.to_string())?;
 
+    // SAFETY: `display` is the live wl_display of the GTK session the window
+    // belongs to. A foreign-display backend does not take ownership or close it,
+    // and GTK keeps it open for longer than this window and its subsurface exist.
     let conn = Connection::from_backend(unsafe {
         Backend::from_foreign_display(display.display.as_ptr() as *mut _)
     });
     let parent_id =
+        // SAFETY: `parent.surface` is the window's live wl_surface on that same
+        // display, and it really is a `wl_surface`, matching the interface passed.
+        // The parent window outlives the subsurface that is attached to it here.
         unsafe { ObjectId::from_ptr(WlSurface::interface(), parent.surface.as_ptr() as *mut _) }
             .map_err(|e| e.to_string())?;
     let parent = WlSurface::from_id(&conn, parent_id).map_err(|e| e.to_string())?;

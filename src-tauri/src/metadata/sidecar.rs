@@ -498,4 +498,92 @@ mod tests {
         assert!(!remove_legacy_rating(&mut untouched));
         assert!(!remove_legacy_rating(&mut metadata(Value::Null)));
     }
+
+    #[test]
+    fn sidecar_fields_are_parsed() {
+        let meta = parse_sidecar(
+            r#"{
+                "version": 1,
+                "rating": 4,
+                "flag": "pick",
+                "adjustments": { "exposure": 0.5 },
+                "tags": ["color:red", "landscape"]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(meta.rating, 4);
+        assert_eq!(meta.flag, Some(ImageFlag::Pick));
+        assert_eq!(meta.adjustments, json!({ "exposure": 0.5 }));
+        assert_eq!(
+            meta.tags,
+            Some(vec!["color:red".to_string(), "landscape".to_string()])
+        );
+        assert!(meta.exif.is_none());
+    }
+
+    #[test]
+    fn missing_sidecar_fields_take_their_defaults() {
+        let meta = parse_sidecar("{}").unwrap();
+        assert_eq!(meta.version, 1);
+        assert_eq!(meta.rating, 0);
+        assert_eq!(meta.flag, None);
+        assert!(meta.adjustments.is_null());
+        assert!(meta.tags.is_none());
+    }
+
+    #[test]
+    fn an_unknown_flag_is_dropped_rather_than_failing_the_sidecar() {
+        let meta = parse_sidecar(r#"{ "rating": 2, "flag": "maybe" }"#).unwrap();
+        assert_eq!(meta.rating, 2);
+        assert_eq!(meta.flag, None);
+    }
+
+    #[test]
+    fn parsing_strips_the_legacy_rating_from_adjustments() {
+        let meta = parse_sidecar(r#"{ "rating": 5, "adjustments": { "rating": 3 } }"#).unwrap();
+        assert_eq!(meta.rating, 5);
+        assert!(meta.adjustments.is_null());
+    }
+
+    #[test]
+    fn malformed_sidecar_is_rejected() {
+        assert!(parse_sidecar("").is_none());
+        assert!(parse_sidecar("{ \"rating\": ").is_none());
+        assert!(parse_sidecar(r#"{ "rating": 900 }"#).is_none());
+    }
+
+    #[test]
+    fn sidecar_serialization_round_trips_and_omits_empty_optionals() {
+        let meta = ImageMetadata {
+            rating: 3,
+            flag: Some(ImageFlag::Reject),
+            adjustments: json!({ "contrast": 10 }),
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&meta).unwrap();
+        assert!(!text.contains("\"exif\""));
+        let back = parse_sidecar(&text).unwrap();
+        assert_eq!(back.rating, 3);
+        assert_eq!(back.flag, Some(ImageFlag::Reject));
+        assert_eq!(back.adjustments, json!({ "contrast": 10 }));
+
+        let unflagged = serde_json::to_string(&ImageMetadata::default()).unwrap();
+        assert!(!unflagged.contains("\"flag\""));
+    }
+
+    #[test]
+    fn oversized_exif_values_are_truncated() {
+        let mut meta = ImageMetadata {
+            exif: Some(HashMap::from([
+                ("MakerNote".to_string(), "x".repeat(2000)),
+                ("Make".to_string(), "Canon".to_string()),
+            ])),
+            ..Default::default()
+        };
+        assert!(heal_bloated_exif(&mut meta));
+        let exif = meta.exif.as_ref().unwrap();
+        assert!(exif["MakerNote"].len() <= 500);
+        assert_eq!(exif["Make"], "Canon");
+        assert!(!heal_bloated_exif(&mut meta));
+    }
 }

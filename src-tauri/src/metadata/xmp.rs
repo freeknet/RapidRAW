@@ -271,3 +271,82 @@ pub fn sync_metadata_to_xmp(
         let _ = write_file_atomic(&xmp_file, content.as_bytes());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rating_is_read_from_attribute_or_element_form() {
+        assert_eq!(
+            extract_xmp_rating(r#"<rdf:Description xmp:Rating="4" />"#),
+            Some(4)
+        );
+        assert_eq!(extract_xmp_rating("<xmp:Rating>2</xmp:Rating>"), Some(2));
+        assert_eq!(
+            extract_xmp_rating(r#"<rdf:Description xmp:Rating="-1" />"#),
+            Some(-1)
+        );
+    }
+
+    #[test]
+    fn missing_or_malformed_rating_is_none() {
+        assert_eq!(extract_xmp_rating("<rdf:Description />"), None);
+        assert_eq!(extract_xmp_rating(r#"xmp:Rating="five""#), None);
+        assert_eq!(extract_xmp_rating(r#"xmp:Rating="3"#), None);
+    }
+
+    #[test]
+    fn rejected_images_are_written_with_the_rejected_rating() {
+        let mut metadata = ImageMetadata {
+            rating: 3,
+            ..Default::default()
+        };
+        assert_eq!(xmp_rating(&metadata), "3");
+        metadata.flag = Some(ImageFlag::Reject);
+        assert_eq!(xmp_rating(&metadata), "-1");
+        metadata.flag = Some(ImageFlag::Pick);
+        assert_eq!(xmp_rating(&metadata), "3");
+    }
+
+    #[test]
+    fn label_is_read_from_attribute_or_element_form() {
+        assert_eq!(
+            extract_xmp_label(r#"<rdf:Description xmp:Label="Red" />"#).as_deref(),
+            Some("Red")
+        );
+        assert_eq!(
+            extract_xmp_label("<xmp:Label>Green</xmp:Label>").as_deref(),
+            Some("Green")
+        );
+        assert_eq!(extract_xmp_label("<rdf:Description />"), None);
+    }
+
+    #[test]
+    fn label_comes_from_the_last_color_tag_capitalized() {
+        let tags = vec![
+            "color:red".to_string(),
+            "landscape".to_string(),
+            "color:blue".to_string(),
+        ];
+        assert_eq!(xmp_label(&tags).as_deref(), Some("Blue"));
+        assert_eq!(xmp_label(&["landscape".to_string()]), None);
+        assert_eq!(xmp_label(&["color:".to_string()]).as_deref(), Some(""));
+    }
+
+    #[test]
+    fn subject_bag_round_trips_through_tag_extraction() {
+        let tags = ["landscape", "mountains", "sunset"];
+        let bag = xmp_subject_bag(&tags);
+        assert_eq!(extract_xmp_tags(&bag), tags);
+        assert!(extract_xmp_tags(&xmp_subject_bag::<&str>(&[])).is_empty());
+    }
+
+    #[test]
+    fn tags_outside_the_subject_block_are_ignored() {
+        let content = "<dc:creator><rdf:Seq><rdf:li>Someone</rdf:li></rdf:Seq></dc:creator>\
+                       <dc:subject><rdf:Bag><rdf:li>kept</rdf:li></rdf:Bag></dc:subject>";
+        assert_eq!(extract_xmp_tags(content), vec!["kept".to_string()]);
+        assert!(extract_xmp_tags("<rdf:li>loose</rdf:li>").is_empty());
+    }
+}

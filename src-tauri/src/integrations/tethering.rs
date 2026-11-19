@@ -41,7 +41,16 @@ impl CameraSession {
     }
 }
 
+// SAFETY: the gphoto2 context and camera wrap raw libgphoto2 pointers, which is
+// why they are not `Send` on their own. libgphoto2 objects are not tied to the
+// thread that created them; what they cannot take is concurrent use. The only
+// instance lives in `AppState::camera_session` behind a `Mutex`, and every
+// command holds the lock for as long as it touches the context or camera, so the
+// objects move between threads but are never used from two at once.
 unsafe impl Send for CameraSession {}
+// SAFETY: a shared reference gives no way around that `Mutex`: `CameraSession`
+// has no interior mutability, and every gphoto2 call goes through the locked
+// guard.
 unsafe impl Sync for CameraSession {}
 
 #[tauri::command]

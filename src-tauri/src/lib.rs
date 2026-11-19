@@ -80,6 +80,10 @@ extern "C" fn mark_shutting_down() {
 #[cfg(target_os = "macos")]
 extern "C" fn force_exit(_signal: libc::c_int) {
     if SHUTTING_DOWN.load(Ordering::SeqCst) {
+        // SAFETY: `_exit` is async-signal-safe and takes no pointers, and
+        // `process_exit_code` is a single atomic load, so both are sound to call
+        // from this SIGABRT handler. `_exit` skips the atexit handlers and
+        // destructors that the abort during shutdown would otherwise re-enter.
         unsafe {
             libc::_exit(process_exit_code());
         }
@@ -89,9 +93,15 @@ extern "C" fn force_exit(_signal: libc::c_int) {
 #[cfg(target_os = "macos")]
 pub fn register_exit_handler() {
     static ATEXIT: std::sync::Once = std::sync::Once::new();
+    // SAFETY: `force_exit` is an `extern "C" fn(c_int)` with the signature
+    // `signal` expects for a handler, it is a plain function so it lives for the
+    // whole program, and it only performs async-signal-safe work.
     unsafe {
         libc::signal(libc::SIGABRT, force_exit as *const () as libc::sighandler_t);
     }
+    // SAFETY: `mark_shutting_down` is an `extern "C" fn()` with static lifetime
+    // that only stores to an atomic, which is what `atexit` requires. The `Once`
+    // keeps it from being registered more than once.
     ATEXIT.call_once(|| unsafe {
         libc::atexit(mark_shutting_down);
     });
@@ -102,6 +112,10 @@ pub fn register_exit_handler() {}
 
 #[cfg(target_os = "linux")]
 fn force_c_numeric_locale() {
+    // SAFETY: modifying the environment is only unsound while another thread
+    // reads or writes it. This is the first thing `run` does, before the rayon
+    // pool, the tauri runtime or any other thread is started, so the process is
+    // still single-threaded here.
     unsafe {
         if let Some(all) = std::env::var_os("LC_ALL").filter(|v| !v.is_empty()) {
             std::env::set_var("LANG", all);
@@ -298,6 +312,12 @@ pub fn run() {
 
             adjustments::lens_correction::init_lensfun_db(&app_handle);
 
+            // SAFETY: `set_var` is unsound only if another thread reads or writes
+            // the environment at the same time. This runs once in the setup hook on
+            // the main thread; the threads alive at this point (tauri's async
+            // runtime, the idle rayon pool and the disk scan spawned above) do not
+            // touch the environment, and the readers of these variables (the wgpu
+            // instance, WebKitGTK's renderer and onnxruntime) are created later.
             unsafe {
                 if let Some(backend) = &settings.processing_backend
                     && backend != "auto" {
@@ -835,6 +855,9 @@ pub fn run() {
                     let code = resolve_exit_code(code, process_exit_code());
 
                     #[cfg(target_os = "macos")]
+                    // SAFETY: `_exit` takes no pointers and is always sound to call; it ends
+                    // the process without running atexit handlers or destructors, which are
+                    // what abort during shutdown on macOS (see `force_exit`).
                     unsafe { libc::_exit(code); }
 
                     #[cfg(not(target_os = "macos"))]
@@ -844,6 +867,9 @@ pub fn run() {
                     let code = process_exit_code();
 
                     #[cfg(target_os = "macos")]
+                    // SAFETY: `_exit` takes no pointers and is always sound to call; it ends
+                    // the process without running atexit handlers or destructors, which are
+                    // what abort during shutdown on macOS (see `force_exit`).
                     unsafe { libc::_exit(code); }
 
                     #[cfg(not(target_os = "macos"))]
