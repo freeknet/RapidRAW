@@ -151,13 +151,6 @@ pub fn run() {
     #[cfg_attr(any(target_os = "android", target_os = "ios"), allow(unused_mut))]
     let mut builder = tauri::Builder::default();
 
-    #[cfg(target_os = "linux")]
-    {
-        if !is_headless {
-            builder = builder.plugin(tauri_plugin_wayland_nvidia_quirk::init());
-        }
-    }
-
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         if !is_headless {
@@ -378,11 +371,6 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             if settings.linux_gpu_optimization.unwrap_or(false) {
                 log::info!("Applied Linux Compatibility Mode (forced software compositing).");
-            } else {
-                log::info!(
-                    "Wayland Nvidia quirk status: {:?}",
-                    tauri_plugin_wayland_nvidia_quirk::status()
-                );
             }
 
             jxl_oxide::integration::register_image_decoding_hook();
@@ -430,6 +418,21 @@ pub fn run() {
                 .find(|w| w.label == "main")
                 .expect("Main window config not found")
                 .clone();
+
+            // Registered here rather than on the builder: plugins set up during
+            // `build`, before this hook sets the compatibility mode variables, and
+            // the quirk decides once. Arming its GL paint context on top of
+            // compatibility mode's software compositing left the window blank.
+            #[cfg(target_os = "linux")]
+            {
+                if let Err(e) = app.handle().plugin(tauri_plugin_wayland_nvidia_quirk::init()) {
+                    log::warn!("Failed to register the Wayland Nvidia quirk: {}", e);
+                }
+                log::info!(
+                    "Wayland Nvidia quirk status: {:?}",
+                    tauri_plugin_wayland_nvidia_quirk::status()
+                );
+            }
 
             #[cfg_attr(target_os = "android", allow(unused_mut))]
             let mut window_builder =
