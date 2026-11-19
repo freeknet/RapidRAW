@@ -852,6 +852,17 @@ export function ViewOptionsDropdown({
                         }}
                         trackClassName="bg-surface"
                       />
+                      <Switch
+                        checked={appSettings?.deleteGroupedFiles ?? false}
+                        id="delete-grouped-files-toggle"
+                        label={t('library.header.viewOptions.deleteGroupedFiles')}
+                        onChange={async (checked) => {
+                          if (appSettings) {
+                            await handleSettingsChange({ ...appSettings, deleteGroupedFiles: checked });
+                          }
+                        }}
+                        trackClassName="bg-surface"
+                      />
                     </div>
                   </motion.div>
                 )}

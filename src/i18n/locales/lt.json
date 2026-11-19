@@ -1462,6 +1462,7 @@
       "title": "Biblioteka",
       "viewOptions": {
         "currentFolder": "Dabartinis aplankas",
+        "deleteGroupedFiles": "Trinti sugrupuotus failus kartu",
         "displayMode": "Rodymo režimas",
         "exifDisabledTooltip": "Įjunkite EXIF skaitymą nustatymuose, kad naudotumėte šią parinktį.",
         "filterByColorLabel": "Filtruoti pagal spalvinę žymą",

@@ -1366,6 +1366,7 @@
       "title": "Library",
       "viewOptions": {
         "currentFolder": "Current Folder",
+        "deleteGroupedFiles": "Delete grouped files together",
         "displayMode": "Display Mode",
         "exifDisabledTooltip": "Enable EXIF Reading in Settings to use this option.",
         "filterByColorLabel": "Filter by Color Label",

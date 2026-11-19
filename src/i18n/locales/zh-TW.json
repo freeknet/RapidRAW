@@ -1361,6 +1361,7 @@
       "title": "相簿",
       "viewOptions": {
         "currentFolder": "當前資料夾",
+        "deleteGroupedFiles": "一併刪除分組的檔案",
         "displayMode": "顯示模式",
         "exifDisabledTooltip": "在設定中啟用 EXIF 讀取以使用此選項。",
         "filterByColorLabel": "按顏色標籤過濾",

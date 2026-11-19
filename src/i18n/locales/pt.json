@@ -1395,6 +1395,7 @@
       "title": "Biblioteca",
       "viewOptions": {
         "currentFolder": "Pasta Atual",
+        "deleteGroupedFiles": "Excluir arquivos agrupados juntos",
         "displayMode": "Modo de Exibição",
         "exifDisabledTooltip": "Ative a Leitura EXIF nas Configurações para usar esta opção.",
         "filterByColorLabel": "Filtrar por Rótulo de Cor",

@@ -1361,6 +1361,7 @@
       "title": "라이브러리",
       "viewOptions": {
         "currentFolder": "현재 폴더",
+        "deleteGroupedFiles": "그룹화된 파일 함께 삭제",
         "displayMode": "표시 모드",
         "exifDisabledTooltip": "이 옵션을 사용하려면 설정에서 EXIF 읽기를 활성화하세요.",
         "filterByColorLabel": "색상 레이블로 필터링",

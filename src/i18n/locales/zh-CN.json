@@ -1361,6 +1361,7 @@
       "title": "图库",
       "viewOptions": {
         "currentFolder": "当前文件夹",
+        "deleteGroupedFiles": "一并删除分组的文件",
         "displayMode": "显示模式",
         "exifDisabledTooltip": "在设置中启用 EXIF 读取以使用此选项。",
         "filterByColorLabel": "按颜色标签过滤",

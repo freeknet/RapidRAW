@@ -1395,6 +1395,7 @@
       "title": "Libreria",
       "viewOptions": {
         "currentFolder": "Cartella Corrente",
+        "deleteGroupedFiles": "Elimina insieme i file raggruppati",
         "displayMode": "Modalità di Visualizzazione",
         "exifDisabledTooltip": "Abilita Lettura EXIF nelle Impostazioni per usare questa opzione.",
         "filterByColorLabel": "Filtra per Etichetta Colore",

@@ -776,6 +776,8 @@ pub struct AppSettings {
     pub require_matching_exif: Option<bool>,
     #[serde(default)]
     pub group_edited_files: Option<bool>,
+    #[serde(default)]
+    pub delete_grouped_files: Option<bool>,
     #[serde(default, skip_serializing)] // legacy
     #[allow(dead_code)]
     pub group_associated_files: Option<bool>,
@@ -977,6 +979,7 @@ impl Default for AppSettings {
             grouping: Some("off".to_string()),
             require_matching_exif: Some(false),
             group_edited_files: Some(true),
+            delete_grouped_files: Some(false),
             group_associated_files: Some(false),
             group_preferred_type: Some("raw".to_string()),
             always_decode_raw_thumbnails: Some(false),

@@ -11,6 +11,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { ImageFlag } from '../types/library';
 import { Invokes } from '../types/invokes';
 import { Status } from '../types/export';
+import { expandToGroupedPaths } from '../utils/imageGrouping';
 
 export const transferFiles = (kind: JobKind.Copy | JobKind.Move, sourcePaths: string[], destinationFolder: string) =>
   useProcessStore
@@ -36,10 +37,15 @@ export function useFileOperations(
   };
 
   const executeDelete = useCallback(
-    async (pathsToDelete: Array<string>, options = { includeAssociated: false }) => {
-      if (!pathsToDelete || pathsToDelete.length === 0) return;
+    async (requestedPaths: Array<string>, options = { includeAssociated: false }) => {
+      if (!requestedPaths || requestedPaths.length === 0) return;
 
-      const { libraryActivePath, setLibrary } = useLibraryStore.getState();
+      const { libraryActivePath, imageList, setLibrary } = useLibraryStore.getState();
+      const { appSettings } = useSettingsStore.getState();
+      const deleteGroupedFiles = appSettings?.deleteGroupedFiles && (appSettings.grouping ?? 'off') !== 'off';
+      const pathsToDelete = deleteGroupedFiles
+        ? expandToGroupedPaths(imageList, requestedPaths, appSettings?.groupEditedFiles ?? true)
+        : requestedPaths;
       const { selectedImage } = useEditorStore.getState();
       const { activeView } = useUIStore.getState(); // <-- Check active view
 

@@ -1424,6 +1424,7 @@
       "title": "Knihovna",
       "viewOptions": {
         "currentFolder": "Aktuální složka",
+        "deleteGroupedFiles": "Mazat seskupené soubory společně",
         "displayMode": "Režim zobrazení",
         "exifDisabledTooltip": "Chcete-li použít tuto možnost, povolte čtení EXIF v Nastavení.",
         "filterByColorLabel": "Filtrovat podle barevného štítku",

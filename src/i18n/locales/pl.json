@@ -1424,6 +1424,7 @@
       "title": "Biblioteka",
       "viewOptions": {
         "currentFolder": "Bieżący folder",
+        "deleteGroupedFiles": "Usuwaj zgrupowane pliki razem",
         "displayMode": "Tryb wyświetlania",
         "exifDisabledTooltip": "Włącz odczytywanie EXIF w Ustawieniach, aby użyć tej opcji.",
         "filterByColorLabel": "Filtruj według Etykiety koloru",

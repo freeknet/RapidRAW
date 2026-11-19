@@ -1366,6 +1366,7 @@
       "title": "Bibliotheek",
       "viewOptions": {
         "currentFolder": "Huidige map",
+        "deleteGroupedFiles": "Gegroepeerde bestanden samen verwijderen",
         "displayMode": "Weergavemodus",
         "exifDisabledTooltip": "Schakel EXIF-lezen in bij instellingen om deze optie te gebruiken.",
         "filterByColorLabel": "Filteren op kleurlabel",

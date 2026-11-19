@@ -1395,6 +1395,7 @@
       "title": "Biblioteca",
       "viewOptions": {
         "currentFolder": "Carpeta actual",
+        "deleteGroupedFiles": "Elimina junts els fitxers agrupats",
         "displayMode": "Mode de visualització",
         "exifDisabledTooltip": "Activeu la lectura EXIF a Configuració per utilitzar aquesta opció.",
         "filterByColorLabel": "Filtrar per etiqueta de color",

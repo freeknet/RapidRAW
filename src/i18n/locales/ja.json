@@ -1361,6 +1361,7 @@
       "title": "ライブラリ",
       "viewOptions": {
         "currentFolder": "現在のフォルダ",
+        "deleteGroupedFiles": "グループ化されたファイルをまとめて削除",
         "displayMode": "表示モード",
         "exifDisabledTooltip": "このオプションを使用するには、設定でEXIF読み込みを有効にしてください。",
         "filterByColorLabel": "カラーラベルでフィルター",

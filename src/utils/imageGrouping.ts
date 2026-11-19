@@ -56,6 +56,24 @@ export function buildImageGroups(
   return { displayList, badges };
 }
 
+export function expandToGroupedPaths(images: ImageFile[], paths: string[], groupEditedFiles = true): string[] {
+  const isGroupable = (image: ImageFile) =>
+    !!image.group_id && !image.is_virtual_copy && (groupEditedFiles || !image.is_edited);
+  const selected = new Set(paths);
+  const groupIds = new Set(
+    images.filter((image) => selected.has(image.path) && isGroupable(image)).map((image) => image.group_id),
+  );
+  if (groupIds.size === 0) return paths;
+
+  const expanded = [...paths];
+  for (const image of images) {
+    if (!selected.has(image.path) && isGroupable(image) && groupIds.has(image.group_id)) {
+      expanded.push(image.path);
+    }
+  }
+  return expanded;
+}
+
 function pickPrimary(files: ImageFile[], preference: GroupPreference): ImageFile {
   const raw = files.find((f) => f.is_raw);
   const nonRaw = files.find((f) => !f.is_raw);

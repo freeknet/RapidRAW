@@ -1396,6 +1396,7 @@
       "title": "Bibliothèque",
       "viewOptions": {
         "currentFolder": "Dossier actuel",
+        "deleteGroupedFiles": "Supprimer ensemble les fichiers groupés",
         "displayMode": "Mode d'affichage",
         "exifDisabledTooltip": "Activez la lecture EXIF dans les paramètres pour utiliser cette option.",
         "filterByColorLabel": "Filtrer par étiquette de couleur",

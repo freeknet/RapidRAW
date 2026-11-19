@@ -1424,6 +1424,7 @@
       "title": "Бібліотека",
       "viewOptions": {
         "currentFolder": "Поточна папка",
+        "deleteGroupedFiles": "Видаляти згруповані файли разом",
         "displayMode": "Режим відображення",
         "exifDisabledTooltip": "Увімкніть читання EXIF у налаштуваннях, щоб використовувати цей параметр.",
         "filterByColorLabel": "Фільтр за колірною міткою",
