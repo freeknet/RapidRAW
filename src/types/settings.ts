@@ -81,6 +81,8 @@ export type CompareMode = 'toggle' | Exclude<CompareView, 'off'>;
 
 export type SliderResetTarget = 'neutral' | 'defaults';
 
+export type ExposureSnapping = 'off' | 'third' | 'half';
+
 export interface Camera {
   make: string;
   model: string;
@@ -175,6 +177,7 @@ export interface AppSettings {
   copyPasteSettings?: CopyPasteSettings;
   developDefaults?: DevelopDefaultsSettings;
   sliderResetTarget?: SliderResetTarget;
+  exposureSnapping?: ExposureSnapping;
   enableFocusMode?: boolean;
   enableToolFocusMode?: boolean;
   hideCollapsedPanels?: boolean;

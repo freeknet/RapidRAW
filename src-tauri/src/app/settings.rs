@@ -800,6 +800,8 @@ pub struct AppSettings {
     pub develop_defaults: crate::adjustments::develop_defaults::DevelopDefaultsSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slider_reset_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposure_snapping: Option<String>,
 }
 
 const UI_SCALE_MIN: f64 = 0.5;
@@ -990,6 +992,7 @@ impl Default for AppSettings {
             immich: crate::integrations::immich::ImmichSettings::default(),
             develop_defaults: Default::default(),
             slider_reset_target: None,
+            exposure_snapping: None,
         }
     }
 }
