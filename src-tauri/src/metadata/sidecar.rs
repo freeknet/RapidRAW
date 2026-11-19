@@ -60,6 +60,17 @@ pub struct ImageMetadata {
     pub tags: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exif: Option<std::collections::HashMap<String, String>>,
+    /// The rating, label and keywords last synced with the XMP sidecar.
+    #[serde(default, rename = "xmpSync", skip_serializing_if = "Option::is_none")]
+    pub xmp_sync: Option<crate::metadata::xmp::XmpSyncState>,
+    /// The rating the camera stored in the image file, once it was taken over.
+    /// Kept so a rating the user cleared does not come back from the file.
+    #[serde(
+        default,
+        rename = "embeddedRating",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub embedded_rating: Option<u8>,
 }
 
 impl Default for ImageMetadata {
@@ -71,6 +82,8 @@ impl Default for ImageMetadata {
             adjustments: Value::Null,
             tags: None,
             exif: None,
+            xmp_sync: None,
+            embedded_rating: None,
         }
     }
 }
@@ -293,7 +306,14 @@ pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
 }
 
 pub fn fill_missing_exif(meta: &mut ImageMetadata, source_path: &Path) {
-    if meta.exif.is_some() {
+    if let Some(stored) = &meta.exif {
+        // The file was changed after the sidecar was written, take over the new EXIF.
+        if crate::metadata::exif_processing::sidecar_exif_is_stale(source_path)
+            && let Some(fresh) =
+                crate::metadata::exif_processing::refresh_stale_exif(source_path, stored)
+        {
+            meta.exif = Some(fresh);
+        }
         return;
     }
 
@@ -380,6 +400,7 @@ fn is_default_sidecar(sidecar_path: &Path, source_path: &Path, metadata: &ImageM
         return false;
     }
     if metadata.rating != 0
+        || metadata.embedded_rating.is_some()
         || metadata.flag.is_some()
         || metadata.tags.as_ref().is_some_and(|tags| !tags.is_empty())
         || !is_default_adjustments(&metadata.adjustments, source_path)

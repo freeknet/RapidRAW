@@ -88,12 +88,30 @@ fn apply_sidecar_field_overrides(metadata: &mut Metadata, map: &HashMap<String, 
     match map.get("UserComment").map(clean_s) {
         Some(val) => {
             if is_user_edit(&val) && !val.starts_with("0x") {
-                metadata.set_tag(ExifTag::UserComment(val.into_bytes()));
+                metadata.set_tag(ExifTag::UserComment(user_comment_bytes(&val)));
             }
         }
         None => {
             metadata.remove_tag(ExifTag::UserComment(Vec::new()));
         }
+    }
+}
+
+/// EXIF UserComment is `undefined` data that starts with an 8 byte character
+/// code. Without it readers drop the first 8 characters or report a bad charset.
+/// UNICODE text is UCS-2 in the byte order of the TIFF header, which is little
+/// endian for the metadata RapidRAW writes.
+fn user_comment_bytes(comment: &str) -> Vec<u8> {
+    if comment.is_ascii() {
+        let mut bytes = b"ASCII\0\0\0".to_vec();
+        bytes.extend_from_slice(comment.as_bytes());
+        bytes
+    } else {
+        let mut bytes = b"UNICODE\0".to_vec();
+        for unit in comment.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        bytes
     }
 }
 
@@ -123,8 +141,20 @@ fn apply_exif_from_rawler(metadata: &mut Metadata, meta: &RawMetadata) {
     if let Some(offset) = &exif.offset_time_digitized {
         metadata.set_tag(ExifTag::OffsetTimeDigitized(offset.clone()));
     }
+    if let Some(dt) = &exif.modify_date {
+        metadata.set_tag(ExifTag::ModifyDate(dt.clone()));
+    }
+    if let Some(offset) = &exif.offset_time {
+        metadata.set_tag(ExifTag::OffsetTime(offset.clone()));
+    }
     if let Some(sub_sec) = &exif.sub_sec_time_original {
         metadata.set_tag(ExifTag::SubSecTimeOriginal(sub_sec.clone()));
+    }
+    if let Some(sub_sec) = &exif.sub_sec_time_digitized {
+        metadata.set_tag(ExifTag::SubSecTimeDigitized(sub_sec.clone()));
+    }
+    if let Some(sub_sec) = &exif.sub_sec_time {
+        metadata.set_tag(ExifTag::SubSecTime(sub_sec.clone()));
     }
     if let Some(lens_make) = &exif.lens_make {
         metadata.set_tag(ExifTag::LensMake(lens_make.clone()));
@@ -414,7 +444,7 @@ pub fn collect_metadata_from_source(
             metadata.set_tag(ExifTag::Copyright(clean_s(val)));
         }
         if let Some(val) = map.get("UserComment") {
-            metadata.set_tag(ExifTag::UserComment(clean_s(val).into_bytes()));
+            metadata.set_tag(ExifTag::UserComment(user_comment_bytes(&clean_s(val))));
         }
         if let Some(val) = map.get("ImageDescription") {
             metadata.set_tag(ExifTag::ImageDescription(clean_s(val)));
@@ -430,6 +460,20 @@ pub fn collect_metadata_from_source(
                 val,
                 EXIF_DATETIME_FORMAT,
             )));
+        }
+        type StringTag = fn(String) -> ExifTag;
+        let time_tags: [(&str, StringTag); 6] = [
+            ("OffsetTime", ExifTag::OffsetTime),
+            ("OffsetTimeOriginal", ExifTag::OffsetTimeOriginal),
+            ("OffsetTimeDigitized", ExifTag::OffsetTimeDigitized),
+            ("SubSecTime", ExifTag::SubSecTime),
+            ("SubSecTimeOriginal", ExifTag::SubSecTimeOriginal),
+            ("SubSecTimeDigitized", ExifTag::SubSecTimeDigitized),
+        ];
+        for (key, tag) in time_tags {
+            if let Some(val) = map.get(key).map(clean_s).filter(|v| !v.is_empty()) {
+                metadata.set_tag(tag(val));
+            }
         }
         if let Some(val) = map.get("FNumber")
             && let Some(ur) = parse_ur64(val)
@@ -1019,3 +1063,17 @@ fn rawler_to_ir64(val: rawler::formats::tiff::SRational) -> iR64 {
 const EXIF_DATETIME_FORMAT: &str = "%Y:%m:%d %H:%M:%S";
 const EXIF_COLOR_SPACE_SRGB: u16 = 1;
 const EXIF_COLOR_SPACE_UNCALIBRATED: u16 = 0xFFFF;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_comment_has_character_code() {
+        assert_eq!(user_comment_bytes("Hi"), b"ASCII\0\0\0Hi".to_vec());
+        assert_eq!(
+            user_comment_bytes("é"),
+            [b"UNICODE\0".as_slice(), &[0xE9, 0x00]].concat()
+        );
+    }
+}

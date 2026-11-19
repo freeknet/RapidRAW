@@ -1,35 +1,23 @@
-use crate::library::tagging::COLOR_TAG_PREFIX;
-
 use crate::library::file_ops::write_file_atomic;
+use crate::library::tagging::{COLOR_TAG_PREFIX, USER_TAG_PREFIX};
 use crate::metadata::sidecar::{ImageFlag, ImageMetadata};
-use quick_xml::escape::{escape, unescape};
-use regex::{NoExpand, regex};
-use std::borrow::Cow;
+use crate::metadata::xmp_sidecar::{XmpDocument, XmpUpdate, normalize_color_label};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-pub fn extract_xmp_rating(content: &str) -> Option<i8> {
-    if let Some(idx) = content.find("xmp:Rating=\"") {
-        let start = idx + 12;
-        let end = content[start..].find('"').map(|i| start + i)?;
-        return content[start..end].parse().ok();
-    }
-    if let Some(idx) = content.find("<xmp:Rating>") {
-        let start = idx + 12;
-        let end = content[start..].find('<').map(|i| start + i)?;
-        return content[start..end].parse().ok();
-    }
-    None
-}
-
 const XMP_REJECTED_RATING: i8 = -1;
 
 pub fn xmp_rating(metadata: &ImageMetadata) -> String {
+    rating_value(metadata).to_string()
+}
+
+fn rating_value(metadata: &ImageMetadata) -> i8 {
     if metadata.flag == Some(ImageFlag::Reject) {
-        XMP_REJECTED_RATING.to_string()
+        XMP_REJECTED_RATING
     } else {
-        metadata.rating.to_string()
+        i8::try_from(metadata.rating.min(5)).unwrap_or(5)
     }
 }
 
@@ -55,20 +43,6 @@ pub fn xmp_subject_bag<S: AsRef<str>>(items: &[S]) -> String {
     bag
 }
 
-pub fn extract_xmp_label(content: &str) -> Option<String> {
-    if let Some(idx) = content.find("xmp:Label=\"") {
-        let start = idx + 11;
-        let end = content[start..].find('"').map(|i| start + i)?;
-        return Some(content[start..end].to_string());
-    }
-    if let Some(idx) = content.find("<xmp:Label>") {
-        let start = idx + 11;
-        let end = content[start..].find('<').map(|i| start + i)?;
-        return Some(content[start..end].to_string());
-    }
-    None
-}
-
 pub fn extract_xmp_tags(content: &str) -> Vec<String> {
     let mut tags = Vec::new();
     if let Some(start_idx) = content.find("<dc:subject>")
@@ -89,15 +63,212 @@ pub fn extract_xmp_tags(content: &str) -> Vec<String> {
     tags
 }
 
+/// The rating, color label and keywords as they appear in an XMP sidecar.
+///
+/// The last state RapidRAW and the sidecar agreed on is stored in the `.rrdata`
+/// file. Comparing against it tells which side changed a value since then, so a
+/// change made in another application is picked up (including removals) and a
+/// change made in RapidRAW is written back without reverting the other side.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct XmpSyncState {
+    /// `xmp:Rating`, -1 for rejected.
+    pub rating: i8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+}
+
+impl XmpSyncState {
+    pub fn is_empty(&self) -> bool {
+        self.rating == 0 && self.label.is_none() && self.keywords.is_empty()
+    }
+
+    fn into_snapshot(self) -> Option<Self> {
+        (!self.is_empty()).then_some(self)
+    }
+
+    fn from_document(doc: &XmpDocument) -> Self {
+        Self {
+            rating: doc.rating().unwrap_or(0),
+            label: doc.color_label(),
+            keywords: doc.keywords(),
+        }
+    }
+
+    /// The state RapidRAW would write for `metadata`.
+    pub fn from_metadata(metadata: &ImageMetadata) -> Self {
+        let tags = metadata.tags.as_deref().unwrap_or_default();
+        let label = tags
+            .iter()
+            .rev()
+            .find_map(|t| t.strip_prefix(COLOR_TAG_PREFIX))
+            .and_then(normalize_color_label);
+        let mut keywords: Vec<String> = Vec::new();
+        for tag in tags.iter().filter(|t| !t.starts_with(COLOR_TAG_PREFIX)) {
+            let keyword = tag.strip_prefix(USER_TAG_PREFIX).unwrap_or(tag).trim();
+            if !keyword.is_empty() && !keywords.iter().any(|k| k == keyword) {
+                keywords.push(keyword.to_string());
+            }
+        }
+        Self {
+            rating: rating_value(metadata),
+            label,
+            keywords,
+        }
+    }
+}
+
+/// The sidecar of `image_path` written by another application, if any.
+///
+/// darktable and digiKam name it `IMG_0001.CR2.xmp`, Lightroom, Bridge and
+/// Capture One `IMG_0001.xmp`. The per-file name wins because it cannot belong to
+/// the other half of a RAW+JPEG pair.
 pub fn resolve_xmp_path(image_path: &Path) -> Option<PathBuf> {
-    let xmp_path = image_path.with_extension("xmp");
-    let xmp_path_upper = image_path.with_extension("XMP");
-    if xmp_path.exists() {
-        Some(xmp_path)
-    } else if xmp_path_upper.exists() {
-        Some(xmp_path_upper)
+    let mut candidates = Vec::with_capacity(4);
+    if let Some(file_name) = image_path.file_name() {
+        for ext in [".xmp", ".XMP"] {
+            let mut name = file_name.to_os_string();
+            name.push(ext);
+            candidates.push(image_path.with_file_name(name));
+        }
+    }
+    candidates.push(image_path.with_extension("xmp"));
+    candidates.push(image_path.with_extension("XMP"));
+    candidates
+        .into_iter()
+        .filter(|p| p != image_path)
+        .find(|p| p.is_file())
+}
+
+fn is_primary(source_path: &Path, sidecar_path: &Path) -> bool {
+    sidecar_path == crate::metadata::sidecar::get_primary_sidecar_path(source_path)
+}
+
+fn set_color_tag(tags: &mut Vec<String>, label: Option<&str>) {
+    tags.retain(|t| !t.starts_with(COLOR_TAG_PREFIX));
+    if let Some(label) = label {
+        tags.push(format!("{COLOR_TAG_PREFIX}{label}"));
+    }
+}
+
+fn has_keyword(tags: &[String], keyword: &str) -> bool {
+    tags.iter()
+        .any(|t| t == keyword || t.strip_prefix(USER_TAG_PREFIX) == Some(keyword))
+}
+
+fn add_keyword(tags: &mut Vec<String>, keyword: &str) {
+    if !has_keyword(tags, keyword) {
+        tags.push(format!("{USER_TAG_PREFIX}{keyword}"));
+    }
+}
+
+fn apply_rating(metadata: &mut ImageMetadata, rating: i8) {
+    if rating == XMP_REJECTED_RATING {
+        metadata.flag = Some(ImageFlag::Reject);
     } else {
-        None
+        metadata.rating = u8::try_from(rating.clamp(0, 5)).unwrap_or(0);
+        if metadata.flag == Some(ImageFlag::Reject) {
+            metadata.flag = None;
+        }
+    }
+}
+
+/// Merges the values read from a sidecar into `metadata`. Returns whether
+/// `metadata` changed and has to be saved.
+pub fn apply_xmp_state(metadata: &mut ImageMetadata, xmp: &XmpSyncState) -> bool {
+    let before = (metadata.rating, metadata.flag, metadata.tags.clone());
+    let previous = metadata.xmp_sync.clone();
+    let mut tags = metadata.tags.clone().unwrap_or_default();
+
+    match &previous {
+        // Only values that changed in the sidecar since the last sync are taken over.
+        Some(last) => {
+            if xmp.rating != last.rating {
+                apply_rating(metadata, xmp.rating);
+            }
+            if xmp.label != last.label {
+                set_color_tag(&mut tags, xmp.label.as_deref());
+            }
+            for removed in last.keywords.iter().filter(|k| !xmp.keywords.contains(k)) {
+                tags.retain(|t| {
+                    t != removed && t.strip_prefix(USER_TAG_PREFIX) != Some(removed.as_str())
+                });
+            }
+            for added in xmp.keywords.iter().filter(|k| !last.keywords.contains(k)) {
+                add_keyword(&mut tags, added);
+            }
+        }
+        // First sync: fill in what RapidRAW does not have yet, never drop anything.
+        None => {
+            if xmp.rating == XMP_REJECTED_RATING {
+                if metadata.flag.is_none() {
+                    metadata.flag = Some(ImageFlag::Reject);
+                }
+            } else if metadata.rating == 0 && xmp.rating > 0 {
+                apply_rating(metadata, xmp.rating);
+            }
+            if let Some(label) = &xmp.label {
+                set_color_tag(&mut tags, Some(label));
+            }
+            for keyword in &xmp.keywords {
+                add_keyword(&mut tags, keyword);
+            }
+        }
+    }
+
+    if metadata.tags.is_some() || !tags.is_empty() {
+        metadata.tags = (!tags.is_empty()).then_some(tags);
+    }
+    metadata.xmp_sync = xmp.clone().into_snapshot();
+
+    before != (metadata.rating, metadata.flag, metadata.tags.clone())
+        || metadata.xmp_sync != previous
+}
+
+/// What has to change in a sidecar that currently holds `current` so it shows
+/// RapidRAW's `desired` state, given the `last` synced state. Values that only
+/// changed in the sidecar are left alone so they can be picked up later.
+pub fn plan_xmp_update(
+    current: &XmpSyncState,
+    raw_label: Option<&str>,
+    desired: &XmpSyncState,
+    last: Option<&XmpSyncState>,
+) -> XmpUpdate {
+    let rapidraw_changed = |f: &dyn Fn(&XmpSyncState) -> bool| last.is_none_or(|l| !f(l));
+
+    let rating = (rapidraw_changed(&|l| l.rating == desired.rating)
+        && current.rating != desired.rating)
+        .then_some(desired.rating);
+
+    let label = match (&desired.label, last) {
+        (Some(label), _) if current.label.as_ref() != Some(label) => Some(Some(label.clone())),
+        // An unknown label set elsewhere is only removed when RapidRAW removed its own.
+        (None, Some(l)) if l.label.is_some() && raw_label.is_some() => Some(None),
+        _ => None,
+    }
+    .filter(|_| rapidraw_changed(&|l| l.label == desired.label));
+
+    let empty = Vec::new();
+    let last_keywords = last.map_or(&empty, |l| &l.keywords);
+    let mut keywords: Vec<String> = current
+        .keywords
+        .iter()
+        .filter(|k| desired.keywords.contains(k) || !last_keywords.contains(k))
+        .cloned()
+        .collect();
+    for keyword in &desired.keywords {
+        if !current.keywords.contains(keyword) && !last_keywords.contains(keyword) {
+            keywords.push(keyword.clone());
+        }
+    }
+    let keywords = (keywords != current.keywords).then_some(keywords);
+
+    XmpUpdate {
+        rating,
+        label,
+        keywords,
     }
 }
 
@@ -106,84 +277,23 @@ pub fn sync_metadata_from_xmp(
     sidecar_path: &Path,
     metadata: &mut ImageMetadata,
 ) -> bool {
-    if sidecar_path != crate::metadata::sidecar::get_primary_sidecar_path(source_path) {
+    if !is_primary(source_path, sidecar_path) {
         return false;
     }
-
-    let actual_xmp = resolve_xmp_path(source_path);
-
-    let mut changed = false;
-
-    if let Some(xmp_file) = actual_xmp
-        && let Ok(content) = fs::read_to_string(&xmp_file)
-    {
-        let xmp_rating = extract_xmp_rating(&content);
-
-        if xmp_rating == Some(XMP_REJECTED_RATING) && metadata.flag.is_none() {
-            metadata.flag = Some(ImageFlag::Reject);
-            changed = true;
-        }
-
-        if metadata.rating == 0
-            && let Some(rating) = xmp_rating.and_then(|r| u8::try_from(r).ok())
-            && rating != 0
-        {
-            metadata.rating = rating;
-            changed = true;
-        }
-
-        let xmp_label = extract_xmp_label(&content);
-        let xmp_tags = extract_xmp_tags(&content);
-
-        let mut current_tags = metadata.tags.clone().unwrap_or_default();
-        let original_len = current_tags.len();
-        let had_no_tags = metadata.tags.is_none();
-
-        for tag in xmp_tags {
-            let tag = unescape(&tag).map_or(tag.clone(), Cow::into_owned);
-            if !current_tags.contains(&tag) {
-                current_tags.push(tag);
-            }
-        }
-
-        if let Some(label) = xmp_label {
-            let label = unescape(&label).map_or(label.clone(), Cow::into_owned);
-            let label_tag = format!("{}{}", COLOR_TAG_PREFIX, label.to_lowercase());
-            if !current_tags.contains(&label_tag) {
-                current_tags.retain(|t| !t.starts_with(COLOR_TAG_PREFIX));
-                current_tags.push(label_tag);
-            }
-        }
-
-        if current_tags.len() != original_len || (had_no_tags && !current_tags.is_empty()) {
-            metadata.tags = Some(current_tags);
-            changed = true;
-        }
-    }
-    changed
+    let Some(xmp_file) = resolve_xmp_path(source_path) else {
+        return false;
+    };
+    let Ok(content) = fs::read_to_string(&xmp_file) else {
+        return false;
+    };
+    let Some(doc) = XmpDocument::parse(&content) else {
+        log::warn!("Ignoring unreadable XMP sidecar {}", xmp_file.display());
+        return false;
+    };
+    apply_xmp_state(metadata, &XmpSyncState::from_document(&doc))
 }
 
-static XMP_LOCK: Mutex<()> = Mutex::new(());
-
-pub fn sync_metadata_to_xmp(
-    source_path: &Path,
-    sidecar_path: &Path,
-    metadata: &ImageMetadata,
-    create_if_missing: bool,
-) {
-    if sidecar_path != crate::metadata::sidecar::get_primary_sidecar_path(source_path) {
-        return;
-    }
-
-    let _xmp = XMP_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    let xmp_path = source_path.with_extension("xmp");
-    let mut actual_xmp = resolve_xmp_path(source_path);
-
-    if actual_xmp.is_none() {
-        if !create_if_missing {
-            return;
-        }
-        let skeleton = r#"<?xml version="1.0" encoding="UTF-8"?>
+const XMP_SKELETON: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="RapidRAW">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description rdf:about=""
@@ -191,84 +301,256 @@ pub fn sync_metadata_to_xmp(
     xmlns:dc="http://purl.org/dc/elements/1.1/">
   </rdf:Description>
  </rdf:RDF>
-</x:xmpmeta>"#;
-        if let Err(e) = write_file_atomic(&xmp_path, skeleton.as_bytes()) {
-            log::error!("Failed to create skeleton XMP: {}", e);
+</x:xmpmeta>
+"#;
+
+static XMP_LOCK: Mutex<()> = Mutex::new(());
+
+/// Writes RapidRAW's rating, color label and keywords into the XMP sidecar,
+/// editing only those properties and keeping everything else in the file.
+pub fn sync_metadata_to_xmp(
+    source_path: &Path,
+    sidecar_path: &Path,
+    metadata: &ImageMetadata,
+    create_if_missing: bool,
+) {
+    if !is_primary(source_path, sidecar_path) {
+        return;
+    }
+    let desired = XmpSyncState::from_metadata(metadata);
+
+    {
+        let _xmp = XMP_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        let existing = resolve_xmp_path(source_path);
+        let (xmp_file, content) = match &existing {
+            Some(path) => match fs::read_to_string(path) {
+                Ok(content) => (path.clone(), content),
+                Err(e) => {
+                    log::warn!("Not syncing unreadable XMP {}: {}", path.display(), e);
+                    return;
+                }
+            },
+            None if create_if_missing && !desired.is_empty() => {
+                (source_path.with_extension("xmp"), XMP_SKELETON.to_string())
+            }
+            None => return,
+        };
+
+        let Some(doc) = XmpDocument::parse(&content) else {
+            log::warn!(
+                "Not touching XMP {} that could not be parsed",
+                xmp_file.display()
+            );
+            return;
+        };
+        let current = XmpSyncState::from_document(&doc);
+        let update = plan_xmp_update(
+            &current,
+            doc.label().as_deref(),
+            &desired,
+            metadata.xmp_sync.as_ref(),
+        );
+        let Some(updated) = doc.apply(&update) else {
+            log::warn!("Could not update XMP {} safely", xmp_file.display());
+            return;
+        };
+        if (existing.is_none() || updated != content)
+            && let Err(e) = write_file_atomic(&xmp_file, updated.as_bytes())
+        {
+            log::error!("Failed to write XMP {}: {}", xmp_file.display(), e);
             return;
         }
-        actual_xmp = Some(xmp_path);
     }
 
-    if let Some(xmp_file) = actual_xmp
-        && let Ok(mut content) = fs::read_to_string(&xmp_file)
+    let snapshot = desired.into_snapshot();
+    if metadata.xmp_sync != snapshot {
+        let _ = crate::metadata::sidecar::update_sidecar(sidecar_path, source_path, |current| {
+            current.xmp_sync = snapshot;
+        });
+    }
+}
+
+/// Writes a sidecar for an image that has a rating, label or keywords but no
+/// XMP file yet, used when "Create Missing XMP Files" is turned on after the
+/// images were rated.
+pub fn backfill_missing_xmp(source_path: &Path, sidecar_path: &Path, metadata: &ImageMetadata) {
+    if is_primary(source_path, sidecar_path)
+        && !XmpSyncState::from_metadata(metadata).is_empty()
+        && resolve_xmp_path(source_path).is_none()
     {
-        let rating_str = xmp_rating(metadata);
-        let re_rating_attr = regex!(r#"xmp:Rating\s*=\s*"[^"]*""#);
-        let re_rating_tag = regex!(r#"<xmp:Rating\s*>[^<]*</xmp:Rating>"#);
+        sync_metadata_to_xmp(source_path, sidecar_path, metadata, true);
+    }
+}
 
-        if re_rating_attr.is_match(&content) {
-            content = re_rating_attr
-                .replace(&content, format!("xmp:Rating=\"{}\"", rating_str))
-                .to_string();
-        } else if re_rating_tag.is_match(&content) {
-            content = re_rating_tag
-                .replace(&content, format!("<xmp:Rating>{}</xmp:Rating>", rating_str))
-                .to_string();
-        } else if let Some(last_index) = content.rfind("</rdf:Description>") {
-            let (start, end) = content.split_at(last_index);
-            content = format!("{} <xmp:Rating>{}</xmp:Rating>\n{}", start, rating_str, end);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(rating: i8, label: Option<&str>, keywords: &[&str]) -> XmpSyncState {
+        XmpSyncState {
+            rating,
+            label: label.map(str::to_string),
+            keywords: keywords.iter().map(|k| k.to_string()).collect(),
         }
+    }
 
-        let current_tags = metadata.tags.clone().unwrap_or_default();
-        let label = xmp_label(&current_tags);
-        let normal_tags: Vec<String> = current_tags
-            .into_iter()
-            .filter(|t| !t.starts_with(COLOR_TAG_PREFIX))
-            .collect();
-
-        if let Some(lbl) = label {
-            let lbl = escape(lbl.as_str());
-            let re_label_attr = regex!(r#"xmp:Label\s*=\s*"[^"]*""#);
-            let re_label_tag = regex!(r#"<xmp:Label\s*>[^<]*</xmp:Label>"#);
-
-            if re_label_attr.is_match(&content) {
-                content = re_label_attr
-                    .replace(&content, NoExpand(&format!("xmp:Label=\"{}\"", lbl)))
-                    .to_string();
-            } else if re_label_tag.is_match(&content) {
-                content = re_label_tag
-                    .replace(
-                        &content,
-                        NoExpand(&format!("<xmp:Label>{}</xmp:Label>", lbl)),
-                    )
-                    .to_string();
-            } else if let Some(last_index) = content.rfind("</rdf:Description>") {
-                let (start, end) = content.split_at(last_index);
-                content = format!("{} <xmp:Label>{}</xmp:Label>\n{}", start, lbl, end);
-            }
-        } else {
-            let re_label_attr = regex!(r#"\s*xmp:Label\s*=\s*"[^"]*""#);
-            let re_label_tag = regex!(r#"\s*<xmp:Label\s*>[^<]*</xmp:Label>"#);
-            content = re_label_attr.replace_all(&content, "").to_string();
-            content = re_label_tag.replace_all(&content, "").to_string();
+    fn metadata(rating: u8, tags: &[&str], last: Option<XmpSyncState>) -> ImageMetadata {
+        ImageMetadata {
+            rating,
+            tags: (!tags.is_empty()).then(|| tags.iter().map(|t| t.to_string()).collect()),
+            xmp_sync: last,
+            ..Default::default()
         }
+    }
 
-        let re_subject = regex!(r#"(?s)<dc:subject>\s*<rdf:Bag>.*?</rdf:Bag>\s*</dc:subject>"#);
-        if normal_tags.is_empty() {
-            content = re_subject.replace_all(&content, "").to_string();
-        } else {
-            let escaped: Vec<Cow<str>> = normal_tags.iter().map(|t| escape(t.as_str())).collect();
-            let bag = xmp_subject_bag(&escaped);
+    #[test]
+    fn first_sync_merges_without_dropping() {
+        let mut meta = metadata(0, &["user:mine", "dog"], None);
+        let xmp = state(4, Some("red"), &["dog", "mine", "Paris"]);
+        assert!(apply_xmp_state(&mut meta, &xmp));
+        assert_eq!(meta.rating, 4);
+        assert_eq!(
+            meta.tags.unwrap(),
+            vec!["user:mine", "dog", "color:red", "user:Paris"]
+        );
+        assert_eq!(meta.xmp_sync, Some(xmp));
+    }
 
-            if re_subject.is_match(&content) {
-                content = re_subject.replace(&content, NoExpand(&bag)).to_string();
-            } else if let Some(last_index) = content.rfind("</rdf:Description>") {
-                let (start, end) = content.split_at(last_index);
-                content = format!("{} {}\n  {}", start, bag, end);
-            }
-        }
+    #[test]
+    fn external_changes_and_removals_are_picked_up() {
+        let last = state(3, Some("red"), &["a", "b"]);
+        let mut meta = metadata(
+            3,
+            &["color:red", "user:a", "user:b", "ai"],
+            Some(last.clone()),
+        );
+        // Same count of keywords and a changed label: both were missed before.
+        let xmp = state(2, Some("green"), &["a", "c"]);
+        assert!(apply_xmp_state(&mut meta, &xmp));
+        assert_eq!(meta.rating, 2);
+        assert_eq!(
+            meta.tags.unwrap(),
+            vec!["user:a", "ai", "color:green", "user:c"]
+        );
 
-        let _ = write_file_atomic(&xmp_file, content.as_bytes());
+        // Nothing changed in the sidecar: RapidRAW's own edits stay.
+        let mut meta = metadata(5, &["user:new"], Some(last.clone()));
+        assert!(!apply_xmp_state(&mut meta, &last));
+        assert_eq!(meta.rating, 5);
+        assert_eq!(meta.tags.unwrap(), vec!["user:new"]);
+    }
+
+    #[test]
+    fn reject_round_trips() {
+        let mut meta = metadata(2, &[], Some(state(2, None, &[])));
+        apply_xmp_state(&mut meta, &state(-1, None, &[]));
+        assert_eq!(meta.flag, Some(ImageFlag::Reject));
+        assert_eq!(XmpSyncState::from_metadata(&meta).rating, -1);
+        apply_xmp_state(&mut meta, &state(1, None, &[]));
+        assert_eq!((meta.rating, meta.flag), (1, None));
+    }
+
+    #[test]
+    fn empty_sidecar_state_is_not_stored() {
+        let mut meta = metadata(0, &[], None);
+        assert!(!apply_xmp_state(&mut meta, &XmpSyncState::default()));
+        assert_eq!(meta.xmp_sync, None);
+        assert_eq!(meta.tags, None);
+    }
+
+    #[test]
+    fn keywords_are_written_without_prefix_and_deduplicated() {
+        let meta = metadata(
+            1,
+            &["user:Tom & Jerry", "Tom & Jerry", "color:blue", "cat"],
+            None,
+        );
+        assert_eq!(
+            XmpSyncState::from_metadata(&meta),
+            state(1, Some("blue"), &["Tom & Jerry", "cat"])
+        );
+    }
+
+    #[test]
+    fn plan_keeps_changes_made_elsewhere() {
+        let last = state(3, Some("red"), &["a", "b"]);
+        // RapidRAW removed "b" and added "d"; the sidecar meanwhile got "c" and a new rating.
+        let desired = state(3, Some("red"), &["a", "d"]);
+        let current = state(1, Some("red"), &["a", "b", "c"]);
+        let update = plan_xmp_update(&current, Some("Red"), &desired, Some(&last));
+        assert_eq!(update.rating, None);
+        assert_eq!(update.label, None);
+        assert_eq!(
+            update.keywords,
+            Some(vec!["a".into(), "c".into(), "d".into()])
+        );
+
+        // Without a previous sync nothing in the sidecar is removed.
+        let update = plan_xmp_update(&current, Some("To Do"), &state(5, None, &["z"]), None);
+        assert_eq!(update.rating, Some(5));
+        assert_eq!(update.label, None);
+        assert_eq!(
+            update.keywords,
+            Some(vec!["a".into(), "b".into(), "c".into(), "z".into()])
+        );
+    }
+
+    #[test]
+    fn plan_removes_label_only_when_removed_in_rapidraw() {
+        let last = state(0, Some("red"), &[]);
+        let current = state(0, Some("red"), &[]);
+        let update = plan_xmp_update(&current, Some("Red"), &state(0, None, &[]), Some(&last));
+        assert_eq!(update.label, Some(None));
+        // A label RapidRAW cannot show ("To Do") survives unrelated writes.
+        let update = plan_xmp_update(
+            &state(0, None, &[]),
+            Some("To Do"),
+            &state(2, None, &[]),
+            Some(&state(0, None, &[])),
+        );
+        assert_eq!(update.label, None);
+        assert_eq!(update.rating, Some(2));
+    }
+
+    #[test]
+    fn full_round_trip_through_a_lightroom_sidecar() {
+        let src = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmp:Rating="2"
+   crs:Temperature="5500">
+   <dc:subject>
+    <rdf:Bag>
+     <rdf:li>Paris</rdf:li>
+    </rdf:Bag>
+   </dc:subject>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+"#;
+        let doc = XmpDocument::parse(src).unwrap();
+        let mut meta = ImageMetadata::default();
+        apply_xmp_state(&mut meta, &XmpSyncState::from_document(&doc));
+        assert_eq!(meta.rating, 2);
+        assert_eq!(meta.tags.as_deref().unwrap(), ["user:Paris"]);
+
+        meta.tags = Some(vec!["user:London".into(), "color:yellow".into()]);
+        meta.rating = 4;
+        let desired = XmpSyncState::from_metadata(&meta);
+        let update = plan_xmp_update(
+            &XmpSyncState::from_document(&doc),
+            doc.label().as_deref(),
+            &desired,
+            meta.xmp_sync.as_ref(),
+        );
+        let out = doc.apply(&update).unwrap();
+        let written = XmpSyncState::from_document(&XmpDocument::parse(&out).unwrap());
+        assert_eq!(written, desired);
+        assert!(out.contains("crs:Temperature=\"5500\""));
+        assert!(!out.contains("user:"));
     }
 }
 

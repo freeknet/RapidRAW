@@ -782,12 +782,62 @@ pub fn get_creation_date_from_bytes(path_hint: &str, file_bytes: &[u8]) -> DateT
     Utc::now()
 }
 
+/// EXIF fields the user can edit in RapidRAW. Their sidecar values win over the file.
+const USER_EDITABLE_EXIF: [&str; 4] = ["ImageDescription", "Artist", "Copyright", "UserComment"];
+
+/// Whether the image file was changed after its `.rrdata` sidecar was last
+/// written, so the EXIF copy kept in the sidecar may be outdated (for example
+/// when lens data was added with ExifTool after the image was edited).
+pub fn sidecar_exif_is_stale(image_path: &Path) -> bool {
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    match (
+        modified(image_path),
+        modified(&get_primary_sidecar_path(image_path)),
+    ) {
+        (Some(image), Some(sidecar)) => image > sidecar,
+        _ => false,
+    }
+}
+
+fn merge_refreshed_exif(
+    mut fresh: HashMap<String, String>,
+    stored: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    for key in USER_EDITABLE_EXIF {
+        if let Some(value) = stored.get(key) {
+            fresh.insert(key.to_string(), value.clone());
+        }
+    }
+    fresh
+}
+
+/// Reads the EXIF of the image file again, keeping the fields the user edited.
+pub fn refresh_stale_exif(
+    image_path: &Path,
+    stored: &HashMap<String, String>,
+) -> Option<HashMap<String, String>> {
+    if file_ops::is_cloud_placeholder(image_path) {
+        return None;
+    }
+    let path_str = image_path.to_string_lossy();
+    let fresh = match file_ops::read_file_mapped(image_path) {
+        Ok(mmap) => read_exif_data_from_bytes(&path_str, &mmap),
+        Err(_) => read_exif_data_from_bytes(&path_str, &fs::read(image_path).ok()?),
+    };
+    (!fresh.is_empty()).then(|| merge_refreshed_exif(fresh, stored))
+}
+
 pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>> {
     let primary = get_primary_sidecar_path(image_path);
 
     if primary.exists() {
         let metadata = load_primary_metadata(image_path);
         if let Some(exif) = metadata.exif {
+            if sidecar_exif_is_stale(image_path)
+                && let Some(fresh) = refresh_stale_exif(image_path, &exif)
+            {
+                return Some(fresh);
+            }
             return Some(exif);
         }
     }
@@ -809,7 +859,61 @@ pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>>
     None
 }
 
+/// The key under which the rating stored in the image file is kept in EXIF maps.
+pub const EMBEDDED_RATING_KEY: &str = "Rating";
+const EXIF_RATING_TAG: u16 = 0x4746;
+const EMBEDDED_XMP_SCAN_LIMIT: usize = 512 * 1024;
+const EMBEDDED_XMP_MAX_LEN: usize = 256 * 1024;
+
+fn exif_rating(file_bytes: &[u8]) -> Option<u8> {
+    let exif = if file_bytes.starts_with(b"IIU\0") {
+        // Panasonic RW2 is a TIFF with its own magic number.
+        let mut head = file_bytes[..file_bytes.len().min(EMBEDDED_XMP_SCAN_LIMIT)].to_vec();
+        head[2] = b'*';
+        exif::Reader::new().read_raw(head).ok()?
+    } else {
+        read_exif(file_bytes)?
+    };
+    exif.fields()
+        .find(|f| f.tag.number() == EXIF_RATING_TAG && f.ifd_num == In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .and_then(|r| u8::try_from(r).ok())
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// `xmp:Rating` of an XMP packet stored inside the file, as Canon (CR2, CR3),
+/// Panasonic (RW2) and DNG writers do.
+fn embedded_xmp_rating(file_bytes: &[u8]) -> Option<u8> {
+    let head = &file_bytes[..file_bytes.len().min(EMBEDDED_XMP_SCAN_LIMIT)];
+    let start = find_bytes(head, b"<x:xmpmeta")?;
+    let tail = &file_bytes[start..file_bytes.len().min(start + EMBEDDED_XMP_MAX_LEN)];
+    let end = find_bytes(tail, b"</x:xmpmeta>")? + b"</x:xmpmeta>".len();
+    let packet = std::str::from_utf8(&tail[..end]).ok()?;
+    let rating = crate::metadata::xmp_sidecar::XmpDocument::parse(packet)?.rating()?;
+    u8::try_from(rating).ok()
+}
+
+/// The star rating the camera stored in the file: EXIF Rating (0x4746, used by
+/// Sony and others) or the rating of an embedded XMP packet.
+pub fn read_embedded_rating(file_bytes: &[u8]) -> Option<u8> {
+    exif_rating(file_bytes)
+        .filter(|r| *r > 0)
+        .or_else(|| embedded_xmp_rating(file_bytes))
+        .filter(|r| (1..=5).contains(r))
+}
+
 pub fn read_exif_data_from_bytes(path: &str, file_bytes: &[u8]) -> HashMap<String, String> {
+    let mut map = read_exif_fields(path, file_bytes);
+    if let Some(rating) = read_embedded_rating(file_bytes) {
+        map.insert(EMBEDDED_RATING_KEY.to_string(), rating.to_string());
+    }
+    map
+}
+
+fn read_exif_fields(path: &str, file_bytes: &[u8]) -> HashMap<String, String> {
     if is_raw_file(path)
         && let Some(map) = extract_metadata(file_bytes)
     {
@@ -888,4 +992,62 @@ pub fn truncate_large_exif(value: &str) -> String {
     }
 
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A little endian TIFF whose first IFD only holds a Rating entry.
+    fn tiff_with_rating(magic: &[u8; 4], rating: u16) -> Vec<u8> {
+        let mut bytes = magic.to_vec();
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&EXIF_RATING_TAG.to_le_bytes());
+        bytes.extend_from_slice(&3u16.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&u32::from(rating).to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn refreshed_exif_keeps_user_edits_only() {
+        let fresh = HashMap::from([
+            ("LensModel".to_string(), "Manual 50mm".to_string()),
+            ("Artist".to_string(), "Camera Owner".to_string()),
+        ]);
+        let stored = HashMap::from([
+            ("Artist".to_string(), "Edited".to_string()),
+            ("GPSLatitude".to_string(), "1 deg".to_string()),
+        ]);
+        let merged = merge_refreshed_exif(fresh, &stored);
+        assert_eq!(merged["LensModel"], "Manual 50mm");
+        assert_eq!(merged["Artist"], "Edited");
+        assert!(!merged.contains_key("GPSLatitude"));
+    }
+
+    #[test]
+    fn reads_exif_rating() {
+        assert_eq!(
+            read_embedded_rating(&tiff_with_rating(b"II*\0", 3)),
+            Some(3)
+        );
+        assert_eq!(
+            read_embedded_rating(&tiff_with_rating(b"IIU\0", 5)),
+            Some(5)
+        );
+        assert_eq!(read_embedded_rating(&tiff_with_rating(b"II*\0", 0)), None);
+    }
+
+    #[test]
+    fn reads_embedded_xmp_rating() {
+        let mut bytes = b"ftypcrx \0\0\0\x01uuid".to_vec();
+        bytes.extend_from_slice(
+            br#"<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"><xmp:Rating>4</xmp:Rating></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>"#,
+        );
+        bytes.extend_from_slice(&[0xFF; 64]);
+        assert_eq!(read_embedded_rating(&bytes), Some(4));
+        assert_eq!(read_embedded_rating(b"no metadata here"), None);
+    }
 }

@@ -4,3 +4,4 @@ pub mod export_metadata;
 pub mod sidecar;
 pub mod tiff_metadata;
 pub mod xmp;
+pub mod xmp_sidecar;

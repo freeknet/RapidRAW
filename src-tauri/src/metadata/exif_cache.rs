@@ -25,7 +25,8 @@ impl ExifCacheState {
         let hash = blake3::hash(folder.to_string_lossy().as_bytes())
             .to_hex()
             .to_string();
-        Some(base_dir.join(format!("{}.json", hash)))
+        // Bumped when the cached fields change, v2 added the in-camera rating.
+        Some(base_dir.join(format!("{}.v2.json", hash)))
     }
 }
 
