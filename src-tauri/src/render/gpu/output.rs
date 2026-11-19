@@ -277,9 +277,8 @@ fn process_and_get_dynamic_image_inner(
 
     if let (true, Some(display_textures)) = (analytics_config.is_some(), &display_textures) {
         let bytes_per_pixel = if output_precision.is_high() { 8 } else { 4 };
-        let unpadded_bytes_per_row = bytes_per_pixel * out_w;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let padded_bytes_per_row =
+            crate::render::gpu::processor::padded_bytes_per_row(out_w, bytes_per_pixel);
         let output_buffer_size = (padded_bytes_per_row * out_h) as u64;
 
         let output_buffer = processor.readback_buffer(output_buffer_size);
