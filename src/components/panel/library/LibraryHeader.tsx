@@ -28,6 +28,8 @@ import {
   ChevronUp,
   ChevronDown,
   HelpCircle,
+  ScanLine,
+  WandSparkles,
 } from 'lucide-react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -997,6 +999,8 @@ const JOB_KINDS_WITH_FOLDER = [JobKind.Copy, JobKind.Import, JobKind.Move];
 
 const JOB_ICONS: Record<JobKind, LucideIcon> = {
   [JobKind.AiTagging]: Tags,
+  [JobKind.AutoAdjust]: WandSparkles,
+  [JobKind.AutoStraighten]: ScanLine,
   [JobKind.Copy]: Copy,
   [JobKind.Export]: FileOutput,
   [JobKind.Import]: FolderInput,

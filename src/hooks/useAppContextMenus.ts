@@ -60,7 +60,7 @@ import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { JobKind, useProcessStore } from '../store/useProcessStore';
+import { JobKind, runBatchEditJob, useProcessStore } from '../store/useProcessStore';
 import { CLOSED_PANORAMA_MODAL_STATE, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getOpenImageDefaults, hasCustomDefaults, openImageHasCustomDefaults } from '../utils/developDefaults';
@@ -660,7 +660,9 @@ export function useAppContextMenus(latestProps: UseAppContextMenusProps) {
         if (batchPaths.length === 0) return;
         batchPaths.forEach((p) => globalImageCache.delete(p));
 
-        invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: batchPaths, mode })
+        runBatchEditJob(JobKind.AutoAdjust, batchPaths, () =>
+          invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: batchPaths, mode }),
+        )
           .then(() => reloadAdjustmentsForPaths(batchPaths))
           .catch((err) => {
             console.error('Failed to apply auto adjustments to paths:', err);

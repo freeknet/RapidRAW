@@ -1458,6 +1458,8 @@
       "images_other": "{{count}} immagini",
       "kinds": {
         "aiTagging": "Tag IA",
+        "autoAdjust": "Regolazione Automatica",
+        "autoStraighten": "Raddrizza automaticamente",
         "copy": "Copia file",
         "export": "Esportazione",
         "import": "Importazione",

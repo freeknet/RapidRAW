@@ -1489,6 +1489,8 @@
       "images_other": "{{count}} obrázků",
       "kinds": {
         "aiTagging": "AI štítkování",
+        "autoAdjust": "Automaticky upravit",
+        "autoStraighten": "Automaticky vyrovnat",
         "copy": "Kopírování souborů",
         "export": "Export",
         "import": "Import",

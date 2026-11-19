@@ -1427,6 +1427,8 @@
       "images_other": "{{count}} afbeeldingen",
       "kinds": {
         "aiTagging": "AI-tagging",
+        "autoAdjust": "Autom. aanpassen",
+        "autoStraighten": "Automatisch rechtzetten",
         "copy": "Bestanden kopiëren",
         "export": "Export",
         "import": "Import",

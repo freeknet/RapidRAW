@@ -1421,6 +1421,8 @@
       "images_other": "이미지 {{count}}개",
       "kinds": {
         "aiTagging": "AI 태그 지정",
+        "autoAdjust": "자동 조정",
+        "autoStraighten": "자동 수평 맞추기",
         "copy": "파일 복사",
         "export": "내보내기",
         "import": "가져오기",

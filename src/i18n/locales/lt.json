@@ -1527,6 +1527,8 @@
       "images_other": "{{count}} nuotrauka",
       "kinds": {
         "aiTagging": "DI žymėjimas",
+        "autoAdjust": "Automatinis koregavimas",
+        "autoStraighten": "Automatinis tiesinimas",
         "copy": "Kopijuoti failus",
         "export": "Eksportuoti",
         "import": "Importuoti",

@@ -1421,6 +1421,8 @@
       "images_other": "{{count}} 枚",
       "kinds": {
         "aiTagging": "AI タグ付け",
+        "autoAdjust": "自動補正",
+        "autoStraighten": "自動角度補正",
         "copy": "ファイルのコピー",
         "export": "書き出し",
         "import": "読み込み",

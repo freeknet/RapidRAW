@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { listen } from '@tauri-apps/api/event';
 import { Progress } from '../types/library';
 import { ExportState, ImportState, Status } from '../types/export';
 
@@ -36,6 +37,8 @@ export interface AiJobsStatus {
 
 export enum JobKind {
   AiTagging = 'aiTagging',
+  AutoAdjust = 'autoAdjust',
+  AutoStraighten = 'autoStraighten',
   Copy = 'copy',
   Export = 'export',
   Import = 'import',
@@ -366,3 +369,28 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
 
   markJobsSeen: () => set({ jobsSeenAt: Date.now() }),
 }));
+
+export const runBatchEditJob = async <T>(kind: JobKind, paths: string[], task: () => Promise<T>): Promise<T> => {
+  if (paths.length < 2) return task();
+
+  const { startJob, updateJob } = useProcessStore.getState();
+  const total = paths.length;
+  const id = startJob(kind, { progress: { current: 0, total } });
+  const pending = new Set(paths);
+  const unlisten = await listen<{ path: string }>('thumbnail-generated', (event) => {
+    if (pending.delete(event.payload.path)) {
+      updateJob(id, { progress: { current: total - pending.size, total } });
+    }
+  }).catch(() => null);
+
+  try {
+    const result = await task();
+    updateJob(id, { status: JobStatus.Success });
+    return result;
+  } catch (err) {
+    updateJob(id, { status: JobStatus.Error, error: String(err) });
+    throw err;
+  } finally {
+    unlisten?.();
+  }
+};

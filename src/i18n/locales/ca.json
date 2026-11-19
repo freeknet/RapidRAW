@@ -1458,6 +1458,8 @@
       "images_other": "{{count}} imatges",
       "kinds": {
         "aiTagging": "Etiquetatge amb IA",
+        "autoAdjust": "Ajustament automàtic",
+        "autoStraighten": "Redreçar automàticament",
         "copy": "Copia de fitxers",
         "export": "Exportació",
         "import": "Importació",

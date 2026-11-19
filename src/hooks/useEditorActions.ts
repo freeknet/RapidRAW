@@ -9,7 +9,7 @@ import { useEditorStore, debouncedSetHistory, getZoomContentSize } from '../stor
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { adjustmentsFromMetadata, getDefaultAdjustmentsFor } from '../utils/developDefaults';
-import { useProcessStore } from '../store/useProcessStore';
+import { JobKind, runBatchEditJob, useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import {
   Adjustments,
@@ -365,7 +365,9 @@ export function useEditorActions() {
       }
       if (batchPaths.length === 0) return;
       batchPaths.forEach((p) => globalImageCache.delete(p));
-      invoke(Invokes.ApplyAutoStraightenToPaths, { paths: batchPaths })
+      runBatchEditJob(JobKind.AutoStraighten, batchPaths, () =>
+        invoke(Invokes.ApplyAutoStraightenToPaths, { paths: batchPaths }),
+      )
         .then(() => reloadAdjustmentsForPaths(batchPaths))
         .catch((err) => toast.error(t('editor.crop.autoStraightenFailed', { error: String(err) })));
     },

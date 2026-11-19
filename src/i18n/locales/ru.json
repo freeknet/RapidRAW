@@ -1489,6 +1489,8 @@
       "images_other": "{{count}} изображения",
       "kinds": {
         "aiTagging": "ИИ-теги",
+        "autoAdjust": "Автонастройка",
+        "autoStraighten": "Автовыравнивание",
         "copy": "Копирование файлов",
         "export": "Экспорт",
         "import": "Импорт",

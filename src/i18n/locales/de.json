@@ -1427,6 +1427,8 @@
       "images_other": "{{count}} Bilder",
       "kinds": {
         "aiTagging": "KI-Verschlagwortung",
+        "autoAdjust": "Autom. anpassen",
+        "autoStraighten": "Automatisch ausrichten",
         "copy": "Dateien kopieren",
         "export": "Export",
         "import": "Import",

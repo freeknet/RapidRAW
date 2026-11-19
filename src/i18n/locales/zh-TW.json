@@ -1421,6 +1421,8 @@
       "images_other": "{{count}} 張圖片",
       "kinds": {
         "aiTagging": "AI 標籤",
+        "autoAdjust": "自動調整",
+        "autoStraighten": "自動拉直",
         "copy": "複製檔案",
         "export": "匯出",
         "import": "匯入",

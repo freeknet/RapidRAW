@@ -1489,6 +1489,8 @@
       "images_other": "{{count}} зображення",
       "kinds": {
         "aiTagging": "Тегування ШІ",
+        "autoAdjust": "Автокоригування",
+        "autoStraighten": "Автовирівнювання",
         "copy": "Копіювання файлів",
         "export": "Експорт",
         "import": "Імпорт",
