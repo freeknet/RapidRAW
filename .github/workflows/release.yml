@@ -72,3 +72,58 @@ jobs:
     secrets: inherit
     permissions:
       contents: write
+
+  # Runs after every platform build has uploaded its assets to the release.
+  # tauri-action uploads straight from each build job, so checksums and
+  # provenance are produced here from the assets as published, rather than by
+  # restructuring the builds. Runs even if some platforms failed, so the assets
+  # that did ship are still covered; re-running it replaces SHA256SUMS.txt.
+  checksums:
+    name: Checksums and provenance
+    needs: release
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      # Download the release assets and upload SHA256SUMS.txt.
+      contents: write
+      # The OIDC token and attestation store for attest-build-provenance.
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          rm -f dist/SHA256SUMS.txt
+          if [ -z "$(ls -A dist)" ]; then
+            echo "The release has no assets to checksum."
+            exit 1
+          fi
+
+      - name: Write SHA256SUMS.txt
+        shell: bash
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum -- * > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+
+      # Signed build provenance for every release asset, verifiable with
+      # `gh attestation verify <file> -R <owner>/<repo>`. SHA256SUMS.txt itself
+      # is not attested: an attestation is already a signed digest.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      - name: Upload SHA256SUMS.txt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
