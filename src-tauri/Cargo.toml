@@ -192,3 +192,16 @@ codegen-units = 256
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
+[lints.clippy]
+# Placeholders and debug output never belong in a commit.
+todo = "deny"
+dbg_macro = "deny"
+# Every `unsafe` block and impl explains its invariant in a `// SAFETY:` comment.
+undocumented_unsafe_blocks = "deny"
+# Burn-down targets, not yet enforced: a few hundred `unwrap`/`expect` calls
+# predate this table, and CI runs clippy with `-D warnings`, so "warn" would fail
+# every build. Raise these to "warn" once the existing calls have been replaced
+# with proper error handling, module by module.
+unwrap_used = "allow"
+expect_used = "allow"

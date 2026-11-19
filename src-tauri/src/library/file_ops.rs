@@ -68,7 +68,11 @@ pub fn is_cloud_placeholder(path: &Path) -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
+    // SAFETY: `libc::stat` is a plain C struct of integers, for which all-zero
+    // bytes are a valid value.
     let mut stat_buf: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `c_path` is a NUL-terminated C string that lives until the end of
+    // the function, and `stat_buf` is a valid, writable `stat` for the call.
     let ret = unsafe { libc::lstat(c_path.as_ptr(), &mut stat_buf) };
     ret == 0 && (stat_buf.st_flags & SF_DATALESS) != 0
 }
@@ -93,6 +97,13 @@ pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
     if let Err(fs::TryLockError::WouldBlock) = file.try_lock_shared() {
         return Err(ReadFileError::Locked);
     }
+    // SAFETY: a memory map is only sound while no one modifies or truncates the
+    // file underneath it. The shared lock taken above keeps RapidRAW's own writers
+    // (which replace files atomically rather than writing in place) and other
+    // lock-respecting programs out where the filesystem supports locking; an
+    // unrelated process truncating the file mid-read remains possible and is the
+    // accepted risk of mapping instead of reading large RAW files. The map is
+    // read-only and its length is the file size at open time.
     let mmap = unsafe {
         MmapOptions::new()
             .len(file.metadata().map_err(ReadFileError::Io)?.len() as usize)
@@ -203,6 +214,8 @@ fn sync_file(file: &fs::File) -> std::io::Result<()> {
             #[cfg(target_vendor = "apple")]
             {
                 use std::os::fd::AsRawFd;
+                // SAFETY: `fsync` only takes a file descriptor, and `file` keeps that
+                // descriptor open for the duration of the call.
                 if unsafe { libc::fsync(file.as_raw_fd()) } != 0 {
                     let e = std::io::Error::last_os_error();
                     if !is_sync_unsupported(&e) {

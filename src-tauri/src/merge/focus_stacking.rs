@@ -1950,9 +1950,16 @@ impl Drop for DiskSource {
 }
 
 fn as_bytes(v: &[f32]) -> &[u8] {
+    // SAFETY: the pointer and `size_of_val(v)` describe exactly the memory of
+    // `v`, which is initialized; `u8` has alignment 1 and every byte of an
+    // `f32` is a valid `u8`. The returned slice borrows `v`, so it cannot
+    // outlive it.
     unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) }
 }
 fn as_bytes_mut(v: &mut [f32]) -> &mut [u8] {
+    // SAFETY: as in `as_bytes`, the range covers exactly `v`'s memory with
+    // alignment 1. The result mutably borrows `v`, so it is the only access, and
+    // any byte pattern written through it is a valid `f32`.
     unsafe { std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, std::mem::size_of_val(v)) }
 }
 

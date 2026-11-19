@@ -40,6 +40,11 @@ pub fn initialize_android(window: &tauri::WebviewWindow) {
                 let vm_ptr = vm.get_java_vm_pointer() as *mut std::ffi::c_void;
                 let context_ptr = context.as_raw() as *mut std::ffi::c_void;
 
+                // SAFETY: `vm_ptr` is the process's JavaVM, valid for the life of the
+                // process, and `context_ptr` is wry's activity object, which wry keeps
+                // as a JNI global reference for the life of the app, so both stay valid
+                // after this closure returns. The `Once` and the probe above make sure
+                // the context is initialized at most once.
                 INIT_NDK_CONTEXT.call_once(|| unsafe {
                     ndk_context::initialize_android_context(vm_ptr, context_ptr);
                     log::info!("Successfully initialized ndk-context on Android.");
@@ -50,11 +55,17 @@ pub fn initialize_android(window: &tauri::WebviewWindow) {
                 let raw_env = env.get_raw() as *mut jni22::sys::JNIEnv;
                 let raw_context = context.as_raw() as jni22::sys::jobject;
 
+                // SAFETY: `raw_env` is the JNIEnv of the current thread, which wry has
+                // attached to the JVM for the duration of this `exec` callback, and the
+                // unowned wrapper is only used inside the callback.
                 let mut env_unowned = unsafe { VerifierEnvUnowned::from_raw(raw_env) };
 
                 match env_unowned
                     .with_env(|env_22| {
                         let verifier_context =
+                            // SAFETY: `raw_context` is the live activity reference wry passed
+                            // to this callback, it outlives `env_22`'s scope, and the wrapper
+                            // does not delete the reference when dropped.
                             unsafe { VerifierJObject::from_raw(env_22, raw_context) };
                         rustls_platform_verifier::android::init_with_env(env_22, verifier_context)
                     })
@@ -112,6 +123,8 @@ pub fn close_android_closeable(env: &mut JNIEnv<'_>, closeable: &JObject<'_>) {
 
 #[cfg(target_os = "android")]
 pub fn get_android_cached_lut_path(uri: &str, extension: &str) -> anyhow::Result<PathBuf> {
+    // SAFETY: ndk-context holds the process's JavaVM pointer, set during startup
+    // (by tao or `initialize_android`) and valid for the life of the process.
     let vm = unsafe { jni::JavaVM::from_raw(ndk_context::android_context().vm().cast()) }
         .map_err(|e| anyhow::anyhow!("Failed to access Android JVM: {}", e))?;
     let mut env = vm
@@ -119,6 +132,9 @@ pub fn get_android_cached_lut_path(uri: &str, extension: &str) -> anyhow::Result
         .map_err(|e| anyhow::anyhow!("Failed to attach current thread: {}", e))?;
 
     let context = env
+        // SAFETY: ndk-context holds the app context as a JNI global reference that
+        // lives for the whole process. The temporary wrapper does not delete it on
+        // drop and is immediately turned into a new local reference owned by `env`.
         .new_local_ref(unsafe {
             jni::objects::JObject::from_raw(ndk_context::android_context().context().cast())
         })
@@ -166,6 +182,9 @@ pub fn get_android_content_resolver<'local>(
     env: &mut JNIEnv<'local>,
 ) -> Result<JObject<'local>, String> {
     let context = env
+        // SAFETY: ndk-context holds the app context as a JNI global reference that
+        // lives for the whole process. The temporary wrapper does not delete it on
+        // drop and is immediately turned into a new local reference owned by `env`.
         .new_local_ref(unsafe { JObject::from_raw(android_context().context().cast()) })
         .map_err(|e| map_android_jni_error(env, e))?;
 
@@ -216,6 +235,8 @@ pub fn parse_android_uri<'local>(
 pub fn resolve_android_content_uri_name(uri_str: &str) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
+        // SAFETY: ndk-context holds the process's JavaVM pointer, set during startup
+        // (by tao or `initialize_android`) and valid for the life of the process.
         let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
             .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
         let mut env = vm
@@ -323,6 +344,8 @@ pub fn resolve_android_content_uri_name(uri_str: &str) -> Result<String, String>
 
 #[cfg(target_os = "android")]
 pub fn read_android_content_uri(uri_str: &str) -> Result<Vec<u8>, String> {
+    // SAFETY: ndk-context holds the process's JavaVM pointer, set during startup
+    // (by tao or `initialize_android`) and valid for the life of the process.
     let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
         .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
     let mut env = vm
@@ -464,6 +487,8 @@ pub fn save_bytes_to_android_media_store(
     collection_class: &str,
     bytes: &[u8],
 ) -> Result<(), String> {
+    // SAFETY: ndk-context holds the process's JavaVM pointer, set during startup
+    // (by tao or `initialize_android`) and valid for the life of the process.
     let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
         .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
     let mut env = vm
@@ -595,6 +620,8 @@ pub fn save_file_bytes_to_android_downloads(
 
 #[cfg(target_os = "android")]
 pub fn get_android_internal_library_root() -> Result<PathBuf, String> {
+    // SAFETY: ndk-context holds the process's JavaVM pointer, set during startup
+    // (by tao or `initialize_android`) and valid for the life of the process.
     let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
         .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
     let mut env = vm
@@ -602,6 +629,9 @@ pub fn get_android_internal_library_root() -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to attach current thread: {}", e))?;
 
     let context = env
+        // SAFETY: ndk-context holds the app context as a JNI global reference that
+        // lives for the whole process. The temporary wrapper does not delete it on
+        // drop and is immediately turned into a new local reference owned by `env`.
         .new_local_ref(unsafe { JObject::from_raw(android_context().context().cast()) })
         .map_err(|e| map_android_jni_error(&mut env, e))?;
 

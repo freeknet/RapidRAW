@@ -172,6 +172,12 @@ fn interpolate_pixel(
     let idx_row1 = idx_row0 + stride;
     let idx_p00 = idx_row0 + x0 * 3;
 
+    // SAFETY: callers pass the raw buffer of a `src_width` x `src_height` RGB
+    // image, so `src_raw.len() == src_width * src_height * 3`. The early return
+    // above guarantees `0 <= x < src_width - 1` and `0 <= y < src_height - 1`,
+    // so `x0 + 1 <= src_width - 1` and `y0 + 1 <= src_height - 1`. The furthest
+    // element read, the last channel of (x0 + 1, y0 + 1), is therefore inside
+    // the buffer, as are the three nearer neighbours.
     unsafe {
         let p00 = src_raw.get_unchecked(idx_p00..idx_p00 + 3);
         let p10 = src_raw.get_unchecked(idx_p00 + 3..idx_p00 + 6);
@@ -288,6 +294,12 @@ fn interpolate_pixel_with_tca(
     let src_height = tca.src_height;
     let cx = tca.cx;
     let cy = tca.cy;
+    // Bilinear sampling needs a 2x2 neighbourhood; the unchecked reads below
+    // rely on it. Like an out-of-range sample in `interpolate_pixel`, the pixel
+    // is left untouched for degenerate images.
+    if src_width < 2 || src_height < 2 {
+        return;
+    }
     let gx = base_x;
     let gy = base_y;
 
@@ -326,6 +338,12 @@ fn interpolate_pixel_with_tca(
 
         let idx_p00 = idx_row0 + x0 * 3 + channel_idx;
 
+        // SAFETY: `src_raw` is the buffer of a `src_width` x `src_height` RGB
+        // image (`len == src_width * src_height * 3`), both dimensions are at
+        // least 2 (checked at the top of the function), and `channel_idx` is 0,
+        // 1 or 2. The coordinates are clamped and then capped so that
+        // `x0 <= src_width - 2` and `y0 <= src_height - 2`, so the furthest read,
+        // channel `channel_idx` of pixel (x0 + 1, y0 + 1), is in bounds.
         unsafe {
             let p00 = *src_raw.get_unchecked(idx_p00);
             let p10 = *src_raw.get_unchecked(idx_p00 + 3);

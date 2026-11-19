@@ -510,6 +510,10 @@ fn high_performance_dml_device_id() -> Option<i32> {
         IDXGIAdapter1, IDXGIFactory6,
     };
 
+    // SAFETY: these are DXGI COM calls through the `windows` crate's typed
+    // wrappers. They take no raw pointers from us, every interface is an owned,
+    // reference-counted wrapper that stays alive for the duration of the calls,
+    // and each HRESULT is checked with `.ok()` before its output is used.
     unsafe {
         let factory: IDXGIFactory6 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0)).ok()?;
         let preferred: IDXGIAdapter1 = factory
