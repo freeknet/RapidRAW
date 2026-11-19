@@ -233,5 +233,24 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=RAPIDRAW_RUNTIME_DIR");
 
-    tauri_build::build()
+    let attributes =
+        if target_os == "windows" && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            // Embed the Common Controls v6 manifest at link time instead of through
+            // tauri-build's resource file, which only reaches the app binary. Test
+            // binaries link the same dialog code (TaskDialogIndirect) and fail to start
+            // with STATUS_ENTRYPOINT_NOT_FOUND without it.
+            let app_manifest = manifest_dir.join("windows-app-manifest.xml");
+            println!("cargo:rerun-if-changed={}", app_manifest.display());
+            println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+            println!(
+                "cargo:rustc-link-arg=/MANIFESTINPUT:{}",
+                app_manifest.display()
+            );
+            tauri_build::Attributes::new()
+                .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest())
+        } else {
+            tauri_build::Attributes::new()
+        };
+
+    tauri_build::try_build(attributes).expect("failed to run tauri-build")
 }
