@@ -33,14 +33,16 @@ pub struct RawExposure {
 }
 
 impl RawExposure {
+    /// The DNG `BaselineExposure` (plus `BaselineExposureOffset`) is part of the
+    /// file's intended default rendering, so it is always applied, like Adobe Camera
+    /// Raw and darktable do. The baseline exposure setting only controls the fixed
+    /// amount that RapidRAW adds to RAW files that carry no such tag.
     pub fn compensation(&self, options: BaselineOptions) -> f32 {
-        let baseline = options
-            .baseline_exposure
-            .map_or(0.0, |amount| match self.dng_baseline {
-                Some(dng_baseline) => dng_baseline,
-                None if self.scene_referred => amount,
-                None => 0.0,
-            });
+        let baseline = match (self.dng_baseline, options.baseline_exposure) {
+            (Some(dng_baseline), _) => dng_baseline,
+            (None, Some(amount)) if self.scene_referred => amount,
+            (None, _) => 0.0,
+        };
         let highlight_preservation = if options.compensate_highlight_preservation {
             self.highlight_preservation
         } else {
@@ -240,5 +242,58 @@ fn pentax(makernote: &IFD) -> f32 {
     {
         Some(Value::Undefined(data)) if data.first() == Some(&1) => 1.0,
         _ => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(baseline_exposure: Option<f32>, highlights: bool) -> BaselineOptions {
+        BaselineOptions {
+            baseline_exposure,
+            compensate_highlight_preservation: highlights,
+        }
+    }
+
+    fn exposure(dng_baseline: Option<f32>, scene_referred: bool) -> RawExposure {
+        RawExposure {
+            scene_referred,
+            dng_baseline,
+            highlight_preservation: 1.0,
+        }
+    }
+
+    #[test]
+    fn dng_baseline_applies_even_with_the_setting_off() {
+        let dng = exposure(Some(3.0), true);
+        assert_eq!(dng.compensation(options(None, false)), 3.0);
+        assert_eq!(dng.compensation(options(Some(0.7), false)), 3.0);
+    }
+
+    #[test]
+    fn dng_baseline_replaces_the_fixed_amount_instead_of_adding_to_it() {
+        let dng = exposure(Some(-0.5), true);
+        assert_eq!(dng.compensation(options(Some(0.7), false)), -0.5);
+        assert_eq!(dng.compensation(options(Some(0.7), true)), 0.5);
+    }
+
+    #[test]
+    fn fixed_amount_follows_the_setting_for_raw_files_without_the_tag() {
+        let raw = exposure(None, true);
+        assert_eq!(raw.compensation(options(None, false)), 0.0);
+        assert_eq!(raw.compensation(options(Some(0.7), false)), 0.7);
+        assert_eq!(raw.compensation(options(Some(0.7), true)), 1.7);
+        assert_eq!(raw.compensation(options(None, true)), 1.0);
+    }
+
+    #[test]
+    fn display_referred_files_get_no_fixed_amount() {
+        let mono = exposure(None, false);
+        assert_eq!(mono.compensation(options(Some(0.7), false)), 0.0);
+        assert_eq!(
+            exposure(Some(1.0), false).compensation(options(None, false)),
+            1.0
+        );
     }
 }
