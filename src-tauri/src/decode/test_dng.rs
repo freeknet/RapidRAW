@@ -2,6 +2,7 @@
 
 pub const CFA: u16 = 32803;
 pub const LINEAR_RAW: u16 = 34892;
+pub const BLACK_IS_ZERO: u16 = 1;
 
 pub const OPCODE_LIST1: u16 = 51008;
 pub const OPCODE_LIST2: u16 = 51009;

@@ -268,6 +268,8 @@ pub fn develop_raw_image(
 
     check_cancel()?;
 
+    let decodable = crate::decode::dng_monochrome::as_linear_raw(file_bytes);
+    let file_bytes: &[u8] = &decodable;
     let source = RawSource::new_from_slice(file_bytes);
     let decoder = rawler::get_decoder(&source)?;
 
@@ -630,6 +632,8 @@ fn cfa_white_balance(raw_image: &RawImage) -> Option<[f32; 3]> {
 }
 
 pub fn read_as_shot(file_bytes: &[u8]) -> Option<AsShot> {
+    let decodable = crate::decode::dng_monochrome::as_linear_raw(file_bytes);
+    let file_bytes: &[u8] = &decodable;
     let source = RawSource::new_from_slice(file_bytes);
     let decoder = rawler::get_decoder(&source).ok()?;
     let mut raw_image = decoder
@@ -702,7 +706,8 @@ fn mono_pixels_to_rgb(
 }
 
 pub fn raw_dimensions(file_bytes: &[u8]) -> Option<(usize, usize)> {
-    let source = RawSource::new_from_slice(file_bytes);
+    let file_bytes = crate::decode::dng_monochrome::as_linear_raw(file_bytes);
+    let source = RawSource::new_from_slice(&file_bytes);
     let decoder = rawler::get_decoder(&source).ok()?;
     let raw_img = decoder
         .raw_image(&source, &RawDecodeParams::default(), true)
@@ -785,6 +790,26 @@ mod tests {
         develop_raw_image(file, false, 1.0, "linear".into(), 0.0, 0.0, None)
             .unwrap()
             .into_rgb32f()
+    }
+
+    #[test]
+    fn black_is_zero_monochrome_dngs_develop() {
+        // Monochrome DNGs store their data as BlackIsZero, which rawler failed
+        // to decode because it looked for a CFA pattern
+        use crate::decode::test_dng::*;
+        let file = dng(
+            8,
+            8,
+            1,
+            BLACK_IS_ZERO,
+            &[600; 64],
+            vec![shorts(50714, &[100]), longs(50717, &[1100])],
+        );
+        let image = develop(&file);
+        assert_eq!(image.dimensions(), (8, 8));
+        for value in image.as_raw() {
+            assert!((value - 0.5).abs() < 1e-3, "{value}");
+        }
     }
 
     fn linear_gradient(orientation: u16, list3: Option<&[u8]>) -> Vec<u8> {
