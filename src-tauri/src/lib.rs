@@ -128,7 +128,10 @@ fn force_c_numeric_locale() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
-    force_c_numeric_locale();
+    {
+        force_c_numeric_locale();
+        platform::nvidia_webkit::apply();
+    }
 
     let _ = rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
