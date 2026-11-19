@@ -1,4 +1,5 @@
 pub mod android;
+pub mod appimage;
 pub mod main_window;
 pub mod monitor;
 pub mod nvidia_webkit;

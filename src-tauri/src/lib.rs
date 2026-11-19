@@ -129,6 +129,7 @@ fn force_c_numeric_locale() {
 pub fn run() {
     #[cfg(target_os = "linux")]
     {
+        platform::appimage::prefer_host_wayland();
         force_c_numeric_locale();
         platform::nvidia_webkit::apply();
     }
