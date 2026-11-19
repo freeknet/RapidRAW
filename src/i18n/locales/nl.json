@@ -2242,6 +2242,13 @@
         "title": "Bewerken in"
       },
       "enableLivePreviews": "Live voorbeelden inschakelen",
+      "gpuPreference": "Videokaart",
+      "gpuPreferenceDesc": "Welke GPU wordt gebruikt op computers met meer dan één. Kies 'Energiebesparing' als de losse GPU traag is of crasht. Vereist een herstart.",
+      "gpuPreferences": {
+        "auto": "Automatisch",
+        "highPerformance": "Hoge prestaties",
+        "lowPower": "Energiebesparing"
+      },
       "hdr": {
         "display": "HDR-weergave",
         "displayDesc": "Toont hooglichten helderder dan normaal wit op een HDR-scherm. Schaduwen en middentonen blijven gelijk en standaardexports veranderen niet.",

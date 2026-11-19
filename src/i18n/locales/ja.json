@@ -2240,6 +2240,13 @@
         "title": "外部アプリで編集"
       },
       "enableLivePreviews": "リアルタイムプレビューを有効化",
+      "gpuPreference": "グラフィックカード",
+      "gpuPreferenceDesc": "複数の GPU を搭載したコンピューターで使用する GPU を選びます。専用 GPU が遅い、またはクラッシュする場合は「省電力」を選んでください。再起動が必要です。",
+      "gpuPreferences": {
+        "auto": "自動",
+        "highPerformance": "高パフォーマンス",
+        "lowPower": "省電力"
+      },
       "hdr": {
         "display": "HDR表示",
         "displayDesc": "HDRディスプレイでハイライトを通常の白より明るく表示します。シャドウと中間調は変わらず、通常の書き出しには影響しません。",

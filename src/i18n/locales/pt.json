@@ -2289,6 +2289,13 @@
         "title": "Editar em"
       },
       "enableLivePreviews": "Ativar Visualizações ao Vivo",
+      "gpuPreference": "Placa gráfica",
+      "gpuPreferenceDesc": "Qual GPU usar em computadores com mais de uma. Escolha 'Economia de energia' se a GPU dedicada estiver lenta ou travar. Requer reinício.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Alto desempenho",
+        "lowPower": "Economia de energia"
+      },
       "hdr": {
         "display": "Tela HDR",
         "displayDesc": "Mostra os realces mais brilhantes que o branco normal em uma tela HDR. Sombras e meios-tons permanecem iguais e as exportações padrão não são afetadas.",

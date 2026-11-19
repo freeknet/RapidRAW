@@ -2376,6 +2376,13 @@
       "exifLabel": "Skaityti EXIF duomenis",
       "exportQuality": "Eksporto kokybė",
       "exportQualityDesc": "Valdo kokybės ir spartos balansą eksportuojant. „Aukšta kokybė“ naudoja geresnį interpoliavimą.",
+      "gpuPreference": "Vaizdo plokštė",
+      "gpuPreferenceDesc": "Kurį GPU naudoti kompiuteriuose, turinčiuose daugiau nei vieną. Pasirinkite „Energijos taupymas“, jei atskiras GPU lėtas arba stringa. Reikia paleisti iš naujo.",
+      "gpuPreferences": {
+        "auto": "Automatinis",
+        "highPerformance": "Didelis našumas",
+        "lowPower": "Energijos taupymas"
+      },
       "hdr": {
         "display": "HDR ekranas",
         "displayDesc": "HDR ekrane rodo šviesias sritis ryškesnes už įprastą baltą. Šešėliai ir vidutiniai tonai nesikeičia, o įprasti eksportai lieka tokie patys.",

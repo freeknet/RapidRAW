@@ -2332,6 +2332,13 @@
         "title": "Upravit v"
       },
       "enableLivePreviews": "Povolit živé náhledy",
+      "gpuPreference": "Grafická karta",
+      "gpuPreferenceDesc": "Která GPU se použije na počítačích s více grafickými kartami. Pokud je dedikovaná GPU pomalá nebo padá, zvolte 'Úspora energie'. Vyžaduje restart.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Vysoký výkon",
+        "lowPower": "Úspora energie"
+      },
       "hdr": {
         "display": "Zobrazení HDR",
         "displayDesc": "Na HDR displeji zobrazuje světla jasnější než běžná bílá. Stíny a střední tóny zůstávají stejné a běžné exporty se nemění.",

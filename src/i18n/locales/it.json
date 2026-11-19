@@ -2289,6 +2289,13 @@
         "title": "Modifica in"
       },
       "enableLivePreviews": "Abilita Anteprime dal Vivo",
+      "gpuPreference": "Scheda grafica",
+      "gpuPreferenceDesc": "Quale GPU usare sui computer che ne hanno più di una. Scegli 'Risparmio energetico' se la GPU dedicata è lenta o si blocca. Richiede il riavvio.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Prestazioni elevate",
+        "lowPower": "Risparmio energetico"
+      },
       "hdr": {
         "display": "Schermo HDR",
         "displayDesc": "Mostra le luci più luminose del bianco normale su uno schermo HDR. Ombre e mezzitoni restano uguali e le esportazioni standard non cambiano.",

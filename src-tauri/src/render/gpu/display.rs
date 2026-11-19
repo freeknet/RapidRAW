@@ -115,6 +115,22 @@ pub fn align_texture_dimension(value: u32) -> u32 {
     (value + 255) & !255
 }
 
+/// Surface pixels per webview pixel. The quad is placed relative to the
+/// webview size, but the scissor and the split line are in surface pixels, so
+/// a surface that is not exactly the webview's size (the Wayland subsurface is
+/// sized from the window and scaled onto the content area) cut the image off
+/// at the bottom or right. Equal sizes give exactly 1.
+pub fn surface_scale(window: [f32; 2], surface: [u32; 2]) -> [f32; 2] {
+    let axis = |webview: f32, surface: u32| {
+        if webview > 0.0 && webview.is_finite() && surface > 0 {
+            surface as f32 / webview
+        } else {
+            1.0
+        }
+    };
+    [axis(window[0], surface[0]), axis(window[1], surface[1])]
+}
+
 pub struct WgpuDisplay {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
@@ -469,12 +485,29 @@ impl WgpuDisplay {
     }
 
     pub fn flush(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
-        queue.write_buffer(
-            &self.transform_buffer,
-            0,
-            bytemuck::bytes_of(&self.latest_transform),
-        );
+        let mut transform = self.latest_transform;
+        let [scale_x, scale_y] = self.surface_scale();
+        // The split line is compared with the fragment position, which is in
+        // surface pixels rather than webview pixels.
+        transform.split_origin = [
+            transform.split_origin[0] * scale_x,
+            transform.split_origin[1] * scale_y,
+        ];
+        queue.write_buffer(&self.transform_buffer, 0, bytemuck::bytes_of(&transform));
         self.render(device, queue)
+    }
+
+    /// Only the Wayland subsurface is sized independently of the webview, so
+    /// other platforms keep drawing in webview pixels unchanged.
+    fn surface_scale(&self) -> [f32; 2] {
+        if cfg!(target_os = "linux") {
+            surface_scale(
+                self.latest_transform.window,
+                [self.config.width, self.config.height],
+            )
+        } else {
+            [1.0, 1.0]
+        }
     }
 
     fn place_image(&mut self) {
@@ -544,12 +577,12 @@ impl WgpuDisplay {
                 multiview_mask: NonZero::new(0),
             });
             if let Some(bind_group) = &self.current_bind_group {
-                let clip_x1 = self.latest_transform.clip[0].max(0.0);
-                let clip_y1 = self.latest_transform.clip[1].max(0.0);
-                let clip_x2 =
-                    (self.latest_transform.clip[0] + self.latest_transform.clip[2]).max(0.0);
-                let clip_y2 =
-                    (self.latest_transform.clip[1] + self.latest_transform.clip[3]).max(0.0);
+                let [scale_x, scale_y] = self.surface_scale();
+                let clip = self.latest_transform.clip;
+                let clip_x1 = (clip[0] * scale_x).max(0.0);
+                let clip_y1 = (clip[1] * scale_y).max(0.0);
+                let clip_x2 = ((clip[0] + clip[2]) * scale_x).max(0.0);
+                let clip_y2 = ((clip[1] + clip[3]) * scale_y).max(0.0);
 
                 let final_clip_x = clip_x1.floor() as u32;
                 let final_clip_y = clip_y1.floor() as u32;
@@ -1203,4 +1236,26 @@ pub static WGPU_DISPLAY_FAILED: AtomicBool = AtomicBool::new(false);
 
 pub fn wgpu_display_failed() -> bool {
     WGPU_DISPLAY_FAILED.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+mod surface_scale_tests {
+    use super::surface_scale;
+
+    #[test]
+    fn matching_sizes_do_not_scale() {
+        assert_eq!(surface_scale([1920.0, 1080.0], [1920, 1080]), [1.0, 1.0]);
+    }
+
+    #[test]
+    fn clip_follows_the_surface_size() {
+        assert_eq!(surface_scale([1000.0, 800.0], [1000, 1000]), [1.0, 1.25]);
+        assert_eq!(surface_scale([2000.0, 1000.0], [1000, 500]), [0.5, 0.5]);
+    }
+
+    #[test]
+    fn unknown_sizes_fall_back_to_one() {
+        assert_eq!(surface_scale([0.0, f32::NAN], [100, 100]), [1.0, 1.0]);
+        assert_eq!(surface_scale([100.0, 100.0], [0, 0]), [1.0, 1.0]);
+    }
 }

@@ -128,7 +128,11 @@ fn force_c_numeric_locale() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
-    force_c_numeric_locale();
+    {
+        platform::appimage::prefer_host_wayland();
+        force_c_numeric_locale();
+        platform::nvidia_webkit::apply();
+    }
 
     let _ = rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
@@ -147,13 +151,6 @@ pub fn run() {
 
     #[cfg_attr(any(target_os = "android", target_os = "ios"), allow(unused_mut))]
     let mut builder = tauri::Builder::default();
-
-    #[cfg(target_os = "linux")]
-    {
-        if !is_headless {
-            builder = builder.plugin(tauri_plugin_wayland_nvidia_quirk::init());
-        }
-    }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
@@ -324,6 +321,15 @@ pub fn run() {
                         std::env::set_var("WGPU_BACKEND", backend);
                     }
 
+                #[cfg(target_os = "windows")]
+                if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none()
+                    && let Some(args) = render::gpu::context::webview2_browser_args(
+                        settings.gpu_power_preference.as_deref(),
+                    )
+                {
+                    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args);
+                }
+
                 #[cfg(target_os = "linux")]
                 {
                     if settings.linux_gpu_optimization.unwrap_or(false) {
@@ -366,11 +372,6 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             if settings.linux_gpu_optimization.unwrap_or(false) {
                 log::info!("Applied Linux Compatibility Mode (forced software compositing).");
-            } else {
-                log::info!(
-                    "Wayland Nvidia quirk status: {:?}",
-                    tauri_plugin_wayland_nvidia_quirk::status()
-                );
             }
 
             jxl_oxide::integration::register_image_decoding_hook();
@@ -418,6 +419,21 @@ pub fn run() {
                 .find(|w| w.label == "main")
                 .expect("Main window config not found")
                 .clone();
+
+            // Registered here rather than on the builder: plugins set up during
+            // `build`, before this hook sets the compatibility mode variables, and
+            // the quirk decides once. Arming its GL paint context on top of
+            // compatibility mode's software compositing left the window blank.
+            #[cfg(target_os = "linux")]
+            {
+                if let Err(e) = app.handle().plugin(tauri_plugin_wayland_nvidia_quirk::init()) {
+                    log::warn!("Failed to register the Wayland Nvidia quirk: {}", e);
+                }
+                log::info!(
+                    "Wayland Nvidia quirk status: {:?}",
+                    tauri_plugin_wayland_nvidia_quirk::status()
+                );
+            }
 
             #[cfg_attr(target_os = "android", allow(unused_mut))]
             let mut window_builder =

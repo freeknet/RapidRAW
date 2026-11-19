@@ -2240,6 +2240,13 @@
         "title": "在其他程式中編輯"
       },
       "enableLivePreviews": "啟用即時預覽",
+      "gpuPreference": "顯示卡",
+      "gpuPreferenceDesc": "在有多張 GPU 的電腦上要使用哪一張。如果獨立顯示卡執行緩慢或當機，請選擇「省電」。需要重新啟動。",
+      "gpuPreferences": {
+        "auto": "自動",
+        "highPerformance": "高效能",
+        "lowPower": "省電"
+      },
       "hdr": {
         "display": "HDR 顯示",
         "displayDesc": "在 HDR 顯示器上以高於一般白色的亮度顯示亮部。陰影與中間調維持不變，一般匯出不受影響。",

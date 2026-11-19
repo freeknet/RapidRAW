@@ -2240,6 +2240,13 @@
         "title": "在其他程序中编辑"
       },
       "enableLivePreviews": "启用实时预览",
+      "gpuPreference": "显卡",
+      "gpuPreferenceDesc": "在有多块 GPU 的电脑上使用哪一块。如果独立显卡运行缓慢或崩溃，请选择“节能”。需要重启。",
+      "gpuPreferences": {
+        "auto": "自动",
+        "highPerformance": "高性能",
+        "lowPower": "节能"
+      },
       "hdr": {
         "display": "HDR 显示",
         "displayDesc": "在 HDR 显示器上以高于普通白色的亮度显示高光。阴影和中间调保持不变，普通导出不受影响。",

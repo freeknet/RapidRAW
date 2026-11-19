@@ -2246,6 +2246,13 @@
         "title": "Bearbeiten in"
       },
       "enableLivePreviews": "Live-Vorschauen aktivieren",
+      "gpuPreference": "Grafikkarte",
+      "gpuPreferenceDesc": "Welche GPU auf Computern mit mehreren Grafikkarten verwendet wird. Wähle 'Energiesparen', wenn die dedizierte GPU langsam ist oder abstürzt. Erfordert einen Neustart.",
+      "gpuPreferences": {
+        "auto": "Auto",
+        "highPerformance": "Hohe Leistung",
+        "lowPower": "Energiesparen"
+      },
       "hdr": {
         "display": "HDR-Anzeige",
         "displayDesc": "Zeigt Lichter auf einem HDR-Bildschirm heller als normales Weiß. Schatten und Mitteltöne bleiben gleich, normale Exporte sind nicht betroffen.",
