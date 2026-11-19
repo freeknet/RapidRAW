@@ -653,11 +653,22 @@ pub fn delete_files_from_disk(paths: Vec<String>, app_handle: AppHandle) -> Resu
     Ok(())
 }
 
+fn strip_xmp_extension(filename: &str) -> Option<&str> {
+    let split = filename.len().checked_sub(4)?;
+    let (base, ext) = (filename.get(..split)?, filename.get(split..)?);
+    (!base.is_empty() && ext.eq_ignore_ascii_case(".xmp")).then_some(base)
+}
+
 fn deletion_stem_for(filename: &str) -> Option<&str> {
     let image_filename = if let Some((image_name, _)) = parse_sidecar_name(filename) {
         image_name
     } else if filename.ends_with(".rrexif") {
         filename.trim_end_matches(".rrexif")
+    } else if let Some(base) = strip_xmp_extension(filename) {
+        if !is_supported_image_file(base) {
+            return Some(base);
+        }
+        base
     } else if is_supported_image_file(filename) {
         filename
     } else {
@@ -1150,4 +1161,18 @@ pub fn rename_files(
         .collect();
 
     Ok(final_new_paths)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deletion_stem_for;
+
+    #[test]
+    fn xmp_sidecars_are_deleted_with_their_image() {
+        assert_eq!(deletion_stem_for("IMG_0001.xmp"), Some("IMG_0001"));
+        assert_eq!(deletion_stem_for("IMG_0001.XMP"), Some("IMG_0001"));
+        assert_eq!(deletion_stem_for("IMG_0001.CR2.xmp"), Some("IMG_0001"));
+        assert_eq!(deletion_stem_for("IMG.0001.xmp"), Some("IMG.0001"));
+        assert_eq!(deletion_stem_for("notes.txt"), None);
+    }
 }
