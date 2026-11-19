@@ -418,6 +418,7 @@
       "denoise_many": "Triukšmo slopinimas",
       "denoise_one": "Triukšmo slopinimas",
       "denoise_other": "Triukšmo slopinimas",
+      "showOriginalLocation": "Rodyti pradinėje vietoje",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
@@ -1110,6 +1111,9 @@
     },
     "destination": {
       "customFolder": "Pasirinktas aplankas",
+      "dialogFolder": "Pradėti nuo",
+      "dialogFolderLastUsed": "Paskutinis naudotas aplankas",
+      "dialogFolderSource": "Nuotraukos aplankas",
       "originalFolder": "Originalios nuotraukos aplankas",
       "subfolder": "Poaplankis",
       "subfolderPlaceholder": "pvz., galutiniai, WebP"
@@ -1460,6 +1464,7 @@
       "title": "Biblioteka",
       "viewOptions": {
         "currentFolder": "Dabartinis aplankas",
+        "deleteGroupedFiles": "Trinti sugrupuotus failus kartu",
         "displayMode": "Rodymo režimas",
         "exifDisabledTooltip": "Įjunkite EXIF skaitymą nustatymuose, kad naudotumėte šią parinktį.",
         "filterByColorLabel": "Filtruoti pagal spalvinę žymą",
@@ -1524,6 +1529,8 @@
       "images_other": "{{count}} nuotrauka",
       "kinds": {
         "aiTagging": "DI žymėjimas",
+        "autoAdjust": "Automatinis koregavimas",
+        "autoStraighten": "Automatinis tiesinimas",
         "copy": "Kopijuoti failus",
         "export": "Eksportuoti",
         "import": "Importuoti",
@@ -2324,6 +2331,11 @@
         "cameraDefaultsDesc": "Suteikite konkrečių fotoaparatų nuotraukoms savo šabloną. Čia nenurodyti fotoaparatai naudoja aukščiau esantį numatytąjį šabloną, o objektyvo korekcija taikoma visiems fotoaparatams.",
         "cameraPresetMissing": "Pasirinktas šablonas ištrintas, todėl šio fotoaparato nuotraukos vėl naudoja visų fotoaparatų šabloną.",
         "description": "Nustatykite, nuo ko pradeda neredaguotos nuotraukos ir į ką grąžina „Atstatyti koregavimus“; redaguotos nuotraukos išlaiko savo nustatymus. Nustačius numatytąsias reikšmes, RAW miniatiūros kuriamos vietoj įterptos fotoaparato peržiūros ir iš pradžių įkeliamos lėčiau.",
+        "exposureSnapping": "Ekspozicijos slankiklio fiksavimas",
+        "exposureSnappingDesc": "Tempiant ekspozicijos slankiklį, jis fiksuojasi žingsniais kaip fotoaparato ekspozicijos korekcijos ratukas. Įvestos reikšmės ir pelės ratukas lieka tikslūs.",
+        "exposureSnappingHalf": "1/2 EV žingsniai",
+        "exposureSnappingOff": "Išjungta",
+        "exposureSnappingThird": "1/3 EV žingsniai",
         "lensCorrection": "Objektyvo korekcija",
         "noCamerasFound": "Kitų fotoaparatų nerasta. Atidarykite aplanką su fotoaparato nuotraukomis arba dešiniuoju pelės mygtuku spustelėkite šabloną redaguodami vieną iš jo nuotraukų.",
         "noPreset": "Nėra (neutralu)",

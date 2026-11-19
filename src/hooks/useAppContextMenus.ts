@@ -15,6 +15,7 @@ import {
   FileInput,
   Folder,
   FolderInput,
+  FolderOpen,
   FolderPlus,
   Images,
   LayoutTemplate,
@@ -59,7 +60,7 @@ import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { JobKind, useProcessStore } from '../store/useProcessStore';
+import { JobKind, runBatchEditJob, useProcessStore } from '../store/useProcessStore';
 import { CLOSED_PANORAMA_MODAL_STATE, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getOpenImageDefaults, hasCustomDefaults, openImageHasCustomDefaults } from '../utils/developDefaults';
@@ -99,6 +100,7 @@ export interface UseAppContextMenusProps {
   executeDelete: (paths: string[], options: any) => Promise<void>;
   handleDeleteRejected: () => void;
   handleTogglePinFolder: (path: string) => Promise<void>;
+  handleSelectSubfolder: (path: string) => Promise<void>;
 }
 
 export function useAppContextMenus(latestProps: UseAppContextMenusProps) {
@@ -116,6 +118,7 @@ export function useAppContextMenus(latestProps: UseAppContextMenusProps) {
       executeDelete: (paths, options) => propsRef.current.executeDelete(paths, options),
       handleDeleteRejected: () => propsRef.current.handleDeleteRejected(),
       handleTogglePinFolder: (path) => propsRef.current.handleTogglePinFolder(path),
+      handleSelectSubfolder: (path) => propsRef.current.handleSelectSubfolder(path),
     }),
     [],
   );
@@ -657,7 +660,9 @@ export function useAppContextMenus(latestProps: UseAppContextMenusProps) {
         if (batchPaths.length === 0) return;
         batchPaths.forEach((p) => globalImageCache.delete(p));
 
-        invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: batchPaths, mode })
+        runBatchEditJob(JobKind.AutoAdjust, batchPaths, () =>
+          invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: batchPaths, mode }),
+        )
           .then(() => reloadAdjustmentsForPaths(batchPaths))
           .catch((err) => {
             console.error('Failed to apply auto adjustments to paths:', err);
@@ -671,6 +676,20 @@ export function useAppContextMenus(latestProps: UseAppContextMenusProps) {
           props.handleImageSelect(path);
         }
         setPanel(Panel.Export);
+      };
+
+      const handleShowInOriginalLocation = async () => {
+        const target = finalSelection[0];
+        const physicalPath = target.split('?vc=')[0];
+        const separatorIndex = Math.max(physicalPath.lastIndexOf('/'), physicalPath.lastIndexOf('\\'));
+        if (separatorIndex === -1) return;
+        const isRootFolder = separatorIndex === 0 || physicalPath[separatorIndex - 1] === ':';
+        const folder = physicalPath.substring(0, isRootFolder ? separatorIndex + 1 : separatorIndex);
+        await props.handleSelectSubfolder(folder);
+        const { currentFolderPath, imageList: folderImages } = useLibraryStore.getState();
+        if (currentFolderPath !== folder) return;
+        const selectedPath = folderImages.some((img) => img.path === target) ? target : physicalPath;
+        setLibrary({ multiSelectedPaths: [selectedPath], libraryActivePath: selectedPath });
       };
 
       const handleRemoveFromAlbum = async () => {
@@ -1037,6 +1056,16 @@ export function useAppContextMenus(latestProps: UseAppContextMenusProps) {
             ]
           : []),
         { type: OPTION_SEPARATOR },
+        ...(activeAlbumId && !isImmichAlbumId(activeAlbumId) && !isImmichImagePath(path)
+          ? [
+              {
+                disabled: !isSingleSelection,
+                icon: FolderOpen,
+                label: t('contextMenus.thumbnail.showOriginalLocation'),
+                onClick: handleShowInOriginalLocation,
+              },
+            ]
+          : []),
         {
           disabled: !isSingleSelection,
           icon: Folder,

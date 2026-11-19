@@ -406,6 +406,7 @@
       "denoise_many": "Débruiter",
       "denoise_one": "Débruiter",
       "denoise_other": "Débruiter",
+      "showOriginalLocation": "Afficher dans l'emplacement d'origine",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
@@ -1047,6 +1048,9 @@
     },
     "destination": {
       "customFolder": "Dossier personnalisé",
+      "dialogFolder": "Ouvrir dans",
+      "dialogFolderLastUsed": "Dernier dossier utilisé",
+      "dialogFolderSource": "Dossier de l'image",
       "originalFolder": "Dossier de l'image d'origine",
       "subfolder": "Sous-dossier",
       "subfolderPlaceholder": "ex. final, WebP"
@@ -1394,6 +1398,7 @@
       "title": "Bibliothèque",
       "viewOptions": {
         "currentFolder": "Dossier actuel",
+        "deleteGroupedFiles": "Supprimer ensemble les fichiers groupés",
         "displayMode": "Mode d'affichage",
         "exifDisabledTooltip": "Activez la lecture EXIF dans les paramètres pour utiliser cette option.",
         "filterByColorLabel": "Filtrer par étiquette de couleur",
@@ -1456,6 +1461,8 @@
       "images_other": "{{count}} images",
       "kinds": {
         "aiTagging": "Étiquetage IA",
+        "autoAdjust": "Ajustement auto",
+        "autoStraighten": "Redresser automatiquement",
         "copy": "Copie de fichiers",
         "export": "Export",
         "import": "Import",
@@ -2243,6 +2250,11 @@
         "cameraDefaultsDesc": "Attribuez aux images de certains appareils leur propre préréglage. Les appareils non listés utilisent le préréglage par défaut ci-dessus, et la correction d'objectif s'applique à tous les appareils.",
         "cameraPresetMissing": "Le préréglage choisi a été supprimé, les images de cet appareil utilisent donc à nouveau le préréglage de tous les appareils.",
         "description": "Définit le point de départ des images non retouchées et la cible de « Réinitialiser les ajustements » ; les images retouchées gardent leurs réglages. Avec des valeurs par défaut, les miniatures RAW sont calculées au lieu d'utiliser l'aperçu intégré de l'appareil et se chargent plus lentement au début.",
+        "exposureSnapping": "Crans du curseur d'exposition",
+        "exposureSnappingDesc": "Lorsque vous faites glisser le curseur d'exposition, il s'aligne sur des crans comme la molette de correction d'exposition d'un appareil photo. Les valeurs saisies et la molette de la souris restent exactes.",
+        "exposureSnappingHalf": "Pas de 1/2 IL",
+        "exposureSnappingOff": "Désactivé",
+        "exposureSnappingThird": "Pas de 1/3 IL",
         "lensCorrection": "Correction de l'objectif",
         "noCamerasFound": "Aucun autre appareil trouvé. Ouvrez un dossier d'images d'un appareil, ou faites un clic droit sur un préréglage en retouchant l'une de ses images.",
         "noPreset": "Aucun (neutre)",

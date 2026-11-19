@@ -406,6 +406,7 @@
       "denoise_many": "Reducir ruido",
       "denoise_one": "Reducir ruido",
       "denoise_other": "Reducir ruido",
+      "showOriginalLocation": "Mostrar en la ubicación original",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
@@ -1047,6 +1048,9 @@
     },
     "destination": {
       "customFolder": "Carpeta personalizada",
+      "dialogFolder": "Empezar en",
+      "dialogFolderLastUsed": "Última carpeta usada",
+      "dialogFolderSource": "Carpeta de la imagen",
       "originalFolder": "Carpeta de la imagen original",
       "subfolder": "Subcarpeta",
       "subfolderPlaceholder": "p. ej. final, WebP"
@@ -1393,6 +1397,7 @@
       "title": "Biblioteca",
       "viewOptions": {
         "currentFolder": "Carpeta actual",
+        "deleteGroupedFiles": "Eliminar juntos los archivos agrupados",
         "displayMode": "Modo de visualización",
         "exifDisabledTooltip": "Habilita la lectura EXIF en Ajustes para usar esta opción.",
         "filterByColorLabel": "Filtrar por etiqueta de color",
@@ -1455,6 +1460,8 @@
       "images_other": "{{count}} imágenes",
       "kinds": {
         "aiTagging": "Etiquetado con IA",
+        "autoAdjust": "Ajuste automático",
+        "autoStraighten": "Enderezar automáticamente",
         "copy": "Copiar archivos",
         "export": "Exportación",
         "import": "Importación",
@@ -2242,6 +2249,11 @@
         "cameraDefaultsDesc": "Da a las imágenes de cámaras concretas su propio ajuste preestablecido. Las cámaras no listadas usan el ajuste predeterminado de arriba, y la corrección de lente se aplica a todas las cámaras.",
         "cameraPresetMissing": "El ajuste preestablecido elegido se eliminó, así que las imágenes de esta cámara vuelven a usar el de todas las cámaras.",
         "description": "Define con qué empiezan las imágenes sin editar y a qué vuelve «Restablecer ajustes»; las imágenes editadas conservan su configuración. Con valores predeterminados, las miniaturas RAW se generan en lugar de usar la vista previa incrustada de la cámara y tardan más al principio.",
+        "exposureSnapping": "Ajuste por pasos del control de exposición",
+        "exposureSnappingDesc": "Al arrastrar el control de exposición, salta por pasos como el dial de compensación de exposición de una cámara. Los valores escritos y la rueda del ratón siguen siendo exactos.",
+        "exposureSnappingHalf": "Pasos de 1/2 EV",
+        "exposureSnappingOff": "Desactivado",
+        "exposureSnappingThird": "Pasos de 1/3 EV",
         "lensCorrection": "Corrección de lente",
         "noCamerasFound": "No se encontraron otras cámaras. Abre una carpeta con imágenes de una cámara o haz clic derecho en un ajuste preestablecido mientras editas una de sus imágenes.",
         "noPreset": "Ninguno (neutro)",

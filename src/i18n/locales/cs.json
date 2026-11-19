@@ -418,6 +418,7 @@
       "denoise_many": "Odšumit",
       "denoise_one": "Odšumit",
       "denoise_other": "Odšumit",
+      "showOriginalLocation": "Zobrazit v původním umístění",
       "superResolution_few": "RapidRes (2x)",
       "superResolution_many": "RapidRes (2x)",
       "superResolution_one": "RapidRes (2x)",
@@ -1072,6 +1073,9 @@
     },
     "destination": {
       "customFolder": "Vlastní složka",
+      "dialogFolder": "Začít v",
+      "dialogFolderLastUsed": "Naposledy použitá složka",
+      "dialogFolderSource": "Složka snímku",
       "originalFolder": "Původní složka snímku",
       "subfolder": "Podsložka",
       "subfolderPlaceholder": "např. final, WebP"
@@ -1422,6 +1426,7 @@
       "title": "Knihovna",
       "viewOptions": {
         "currentFolder": "Aktuální složka",
+        "deleteGroupedFiles": "Mazat seskupené soubory společně",
         "displayMode": "Režim zobrazení",
         "exifDisabledTooltip": "Chcete-li použít tuto možnost, povolte čtení EXIF v Nastavení.",
         "filterByColorLabel": "Filtrovat podle barevného štítku",
@@ -1486,6 +1491,8 @@
       "images_other": "{{count}} obrázků",
       "kinds": {
         "aiTagging": "AI štítkování",
+        "autoAdjust": "Automaticky upravit",
+        "autoStraighten": "Automaticky vyrovnat",
         "copy": "Kopírování souborů",
         "export": "Export",
         "import": "Import",
@@ -2285,6 +2292,11 @@
         "cameraDefaultsDesc": "Dejte snímkům z konkrétních fotoaparátů vlastní předvolbu. Fotoaparáty, které tu nejsou, používají výchozí předvolbu výše a korekce objektivu platí pro všechny fotoaparáty.",
         "cameraPresetMissing": "Vybraná předvolba byla smazána, proto snímky z tohoto fotoaparátu opět používají předvolbu pro všechny fotoaparáty.",
         "description": "Určuje, s čím začínají neupravené snímky a k čemu se vrací „Obnovit úpravy“; upravené snímky si ponechají své nastavení. S výchozími hodnotami se náhledy RAW vykreslují místo použití vloženého náhledu z fotoaparátu a zpočátku se načítají pomaleji.",
+        "exposureSnapping": "Přichytávání posuvníku expozice",
+        "exposureSnappingDesc": "Při tažení se posuvník expozice přichytává po krocích jako kolečko korekce expozice na fotoaparátu. Zadané hodnoty a kolečko myši zůstávají přesné.",
+        "exposureSnappingHalf": "Kroky po 1/2 EV",
+        "exposureSnappingOff": "Vypnuto",
+        "exposureSnappingThird": "Kroky po 1/3 EV",
         "lensCorrection": "Korekce objektivu",
         "noCamerasFound": "Žádné další fotoaparáty nenalezeny. Otevřete složku se snímky z fotoaparátu nebo klikněte pravým tlačítkem na předvolbu při úpravě některého z jeho snímků.",
         "noPreset": "Žádná (neutrální)",

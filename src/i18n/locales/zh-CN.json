@@ -394,6 +394,7 @@
       "deleteSelected": "仅删除选中项",
       "denoise_one": "降噪",
       "denoise_other": "降噪",
+      "showOriginalLocation": "在原始位置显示",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "复制图像",
@@ -1019,6 +1020,9 @@
     },
     "destination": {
       "customFolder": "自定义文件夹",
+      "dialogFolder": "起始位置",
+      "dialogFolderLastUsed": "上次使用的文件夹",
+      "dialogFolderSource": "图像所在文件夹",
       "originalFolder": "原始图像文件夹",
       "subfolder": "子文件夹",
       "subfolderPlaceholder": "例如：final, WebP"
@@ -1359,6 +1363,7 @@
       "title": "图库",
       "viewOptions": {
         "currentFolder": "当前文件夹",
+        "deleteGroupedFiles": "一并删除分组的文件",
         "displayMode": "显示模式",
         "exifDisabledTooltip": "在设置中启用 EXIF 读取以使用此选项。",
         "filterByColorLabel": "按颜色标签过滤",
@@ -1418,6 +1423,8 @@
       "images_other": "{{count}} 张图片",
       "kinds": {
         "aiTagging": "AI 标签",
+        "autoAdjust": "自动调整",
+        "autoStraighten": "自动拉直",
         "copy": "复制文件",
         "export": "导出",
         "import": "导入",
@@ -2193,6 +2200,11 @@
         "cameraDefaultsDesc": "为特定相机的图像设置单独的预设。未列出的相机使用上面的默认预设，镜头校正适用于所有相机。",
         "cameraPresetMissing": "所选预设已被删除，因此该相机的图像重新使用所有相机的预设。",
         "description": "设置未编辑图像的初始值以及“重置调整”恢复到的值；已编辑的图像保留各自的设置。设置默认值后，RAW 缩略图将重新渲染而不使用相机内嵌预览，因此首次加载较慢。",
+        "exposureSnapping": "曝光滑块吸附",
+        "exposureSnappingDesc": "拖动曝光滑块时，它会像相机的曝光补偿拨盘一样按档位吸附。输入的数值和鼠标滚轮保持精确。",
+        "exposureSnappingHalf": "1/2 EV 档",
+        "exposureSnappingOff": "关闭",
+        "exposureSnappingThird": "1/3 EV 档",
         "lensCorrection": "镜头校正",
         "noCamerasFound": "未找到其他相机。请打开包含该相机图像的文件夹，或在编辑其图像时右键单击预设。",
         "noPreset": "无（中性）",

@@ -394,6 +394,7 @@
       "deleteSelected": "선택 항목만 삭제",
       "denoise_one": "노이즈 제거",
       "denoise_other": "노이즈 제거",
+      "showOriginalLocation": "원래 위치에서 보기",
       "superResolution_one": "RapidRes (2x)",
       "superResolution_other": "RapidRes (2x)",
       "duplicateImage": "이미지 복제",
@@ -1019,6 +1020,9 @@
     },
     "destination": {
       "customFolder": "사용자 지정 폴더",
+      "dialogFolder": "시작 위치",
+      "dialogFolderLastUsed": "마지막으로 사용한 폴더",
+      "dialogFolderSource": "이미지 폴더",
       "originalFolder": "원본 이미지 폴더",
       "subfolder": "하위 폴더",
       "subfolderPlaceholder": "예: final, WebP"
@@ -1359,6 +1363,7 @@
       "title": "라이브러리",
       "viewOptions": {
         "currentFolder": "현재 폴더",
+        "deleteGroupedFiles": "그룹화된 파일 함께 삭제",
         "displayMode": "표시 모드",
         "exifDisabledTooltip": "이 옵션을 사용하려면 설정에서 EXIF 읽기를 활성화하세요.",
         "filterByColorLabel": "색상 레이블로 필터링",
@@ -1418,6 +1423,8 @@
       "images_other": "이미지 {{count}}개",
       "kinds": {
         "aiTagging": "AI 태그 지정",
+        "autoAdjust": "자동 조정",
+        "autoStraighten": "자동 수평 맞추기",
         "copy": "파일 복사",
         "export": "내보내기",
         "import": "가져오기",
@@ -2193,6 +2200,11 @@
         "cameraDefaultsDesc": "특정 카메라의 이미지에 별도의 프리셋을 지정합니다. 여기에 없는 카메라는 위의 기본 프리셋을 사용하며, 렌즈 보정은 모든 카메라에 적용됩니다.",
         "cameraPresetMissing": "선택한 프리셋이 삭제되어 이 카메라의 이미지가 다시 모든 카메라용 프리셋을 사용합니다.",
         "description": "편집하지 않은 이미지의 시작 값과 '조정값 초기화'가 돌아가는 값을 설정합니다. 편집한 이미지는 설정이 유지됩니다. 기본값을 설정하면 RAW 썸네일이 카메라 내장 미리보기 대신 새로 만들어져 처음에는 더 느리게 로드됩니다.",
+        "exposureSnapping": "노출 슬라이더 스냅",
+        "exposureSnappingDesc": "노출 슬라이더를 드래그하면 카메라의 노출 보정 다이얼처럼 단계별로 맞춰집니다. 입력한 값과 마우스 휠은 정확하게 유지됩니다.",
+        "exposureSnappingHalf": "1/2 EV 단계",
+        "exposureSnappingOff": "끄기",
+        "exposureSnappingThird": "1/3 EV 단계",
         "lensCorrection": "렌즈 보정",
         "noCamerasFound": "다른 카메라를 찾지 못했습니다. 해당 카메라 이미지가 있는 폴더를 열거나, 그 이미지를 편집하는 중에 프리셋을 마우스 오른쪽 버튼으로 클릭하세요.",
         "noPreset": "없음 (중립)",

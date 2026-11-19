@@ -669,6 +669,10 @@ pub struct AppSettings {
     #[serde(default = "default_export_presets")]
     pub export_presets: Vec<ExportPreset>,
     #[serde(default)]
+    pub export_dialog_folder: Option<String>,
+    #[serde(default)]
+    pub last_import_settings: Option<Value>,
+    #[serde(default)]
     pub my_lenses: Option<Vec<MyLens>>,
     #[serde(default)]
     pub enable_folder_image_counts: Option<bool>,
@@ -774,6 +778,8 @@ pub struct AppSettings {
     pub require_matching_exif: Option<bool>,
     #[serde(default)]
     pub group_edited_files: Option<bool>,
+    #[serde(default)]
+    pub delete_grouped_files: Option<bool>,
     #[serde(default, skip_serializing)] // legacy
     #[allow(dead_code)]
     pub group_associated_files: Option<bool>,
@@ -796,6 +802,8 @@ pub struct AppSettings {
     pub develop_defaults: crate::adjustments::develop_defaults::DevelopDefaultsSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slider_reset_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposure_snapping: Option<String>,
 }
 
 const UI_SCALE_MIN: f64 = 0.5;
@@ -908,6 +916,8 @@ impl Default for AppSettings {
             ai_cache_limits_migrated_v1: Some(true),
             library_view_mode: Some("flat".to_string()),
             export_presets: default_export_presets(),
+            export_dialog_folder: None,
+            last_import_settings: None,
             my_lenses: Some(Vec::new()),
             #[cfg(target_os = "android")]
             high_res_zoom_multiplier: Some(0.75),
@@ -974,6 +984,7 @@ impl Default for AppSettings {
             grouping: Some("off".to_string()),
             require_matching_exif: Some(false),
             group_edited_files: Some(true),
+            delete_grouped_files: Some(false),
             group_associated_files: Some(false),
             group_preferred_type: Some("raw".to_string()),
             always_decode_raw_thumbnails: Some(false),
@@ -984,6 +995,7 @@ impl Default for AppSettings {
             immich: crate::integrations::immich::ImmichSettings::default(),
             develop_defaults: Default::default(),
             slider_reset_target: None,
+            exposure_snapping: None,
         }
     }
 }

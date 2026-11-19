@@ -34,6 +34,7 @@ interface SliderProps {
   animateValueChanges?: boolean;
   defaultValue?: number;
   disabled?: boolean;
+  dragSnap?(value: number): number;
   label: React.ReactNode;
   markers?: Array<SliderMarker>;
   max: number;
@@ -109,6 +110,7 @@ const Slider = ({
   animateValueChanges = true,
   defaultValue = 0,
   disabled = false,
+  dragSnap,
   label,
   markers,
   max,
@@ -187,6 +189,11 @@ const Slider = ({
     [min, max, step, decimalPlaces],
   );
 
+  const snapDragValue = useCallback(
+    (val: number): number => (dragSnap ? snapToStep(dragSnap(snapToStep(val))) : snapToStep(val)),
+    [dragSnap, snapToStep],
+  );
+
   const numericValue = isNaN(Number(value)) ? 0 : Number(value);
   const formatValue = (val: number) => (decimalPlaces > 0 && val === 0 ? '0' : val.toFixed(decimalPlaces));
 
@@ -196,7 +203,7 @@ const Slider = ({
   const scaleRef = useRef(scale);
 
   onChangeRef.current = onChange;
-  snapToStepRef.current = snapToStep;
+  snapToStepRef.current = snapDragValue;
   rangeRef.current = { min: minPosition, max: maxPosition };
   scaleRef.current = scale;
 
@@ -555,7 +562,7 @@ const Slider = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const rawPosition = minPosition + fraction * (maxPosition - minPosition);
-    const snappedValue = snapToStep(scale.fromPosition(rawPosition));
+    const snappedValue = snapDragValue(scale.fromPosition(rawPosition));
 
     accumulatedValueRef.current = rawPosition;
     lastPointerXRef.current = e.clientX;
@@ -621,7 +628,7 @@ const Slider = ({
     const rect = inputEl.getBoundingClientRect();
     const multiplier = hasFineAdjustmentModifier(e) ? FINE_ADJUSTMENT_MULTIPLIER : 1;
     const rawPosition = pendingTouch.startPosition + (deltaX / rect.width) * (maxPosition - minPosition) * multiplier;
-    const snappedValue = snapToStep(scale.fromPosition(rawPosition));
+    const snappedValue = snapDragValue(scale.fromPosition(rawPosition));
 
     accumulatedValueRef.current = rawPosition;
     lastPointerXRef.current = touch.clientX;

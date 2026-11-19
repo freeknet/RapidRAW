@@ -65,6 +65,14 @@ export interface EditInApp {
 
 export type GroupPreference = 'jpeg' | 'raw';
 
+export type ExportDialogFolder = 'lastUsed' | 'source';
+
+export interface LastImportSettings {
+  filenameTemplate?: string;
+  organizeByDate?: boolean;
+  dateFolderFormat?: string;
+}
+
 export type GroupingMode = 'off' | GroupPreference;
 
 export type CompareView = 'off' | 'vertical' | 'horizontal' | 'sideBySide';
@@ -72,6 +80,8 @@ export type CompareView = 'off' | 'vertical' | 'horizontal' | 'sideBySide';
 export type CompareMode = 'toggle' | Exclude<CompareView, 'off'>;
 
 export type SliderResetTarget = 'neutral' | 'defaults';
+
+export type ExposureSnapping = 'off' | 'third' | 'half';
 
 export interface Camera {
   make: string;
@@ -129,7 +139,9 @@ export interface AppSettings {
   processingBackend?: string;
   rawDecoding?: string;
   linuxGpuOptimization?: boolean;
+  exportDialogFolder?: ExportDialogFolder;
   exportPresets?: ExportPreset[];
+  lastImportSettings?: LastImportSettings;
   myLenses?: any;
   customAspectRatios?: CustomAspectRatio[];
   editInApps?: EditInApp[];
@@ -166,6 +178,7 @@ export interface AppSettings {
   copyPasteSettings?: CopyPasteSettings;
   developDefaults?: DevelopDefaultsSettings;
   sliderResetTarget?: SliderResetTarget;
+  exposureSnapping?: ExposureSnapping;
   enableFocusMode?: boolean;
   enableToolFocusMode?: boolean;
   hideCollapsedPanels?: boolean;
@@ -180,6 +193,7 @@ export interface AppSettings {
   grouping?: GroupingMode;
   requireMatchingExif?: boolean;
   groupEditedFiles?: boolean;
+  deleteGroupedFiles?: boolean;
   groupPreferredType?: GroupPreference; // legacy
   alwaysDecodeRawThumbnails?: boolean;
   workspace?: WorkspaceState;

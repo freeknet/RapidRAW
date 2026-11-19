@@ -4,6 +4,7 @@ import Switch from '../ui/Switch';
 import { FILENAME_VARIABLES, isUniqueFilenameTemplate } from '../../types/export';
 import Text from '../ui/Text';
 import { TextVariants } from '../../types/typography';
+import { useSettingsStore } from '../../store/useSettingsStore';
 
 interface ImportSettingsModalProps {
   fileCount: number;
@@ -25,6 +26,12 @@ export default function ImportSettingsModal({ fileCount, isOpen, onClose, onSave
 
   useEffect(() => {
     if (isOpen) {
+      const saved = useSettingsStore.getState().appSettings?.lastImportSettings;
+      if (saved) {
+        setFilenameTemplate(saved.filenameTemplate || '{original_filename}');
+        setOrganizeByDate(saved.organizeByDate ?? false);
+        setDateFolderFormat(saved.dateFolderFormat || 'YYYY/MM-DD');
+      }
       setIsMounted(true);
       const timer = setTimeout(() => setShow(true), 10);
       return () => clearTimeout(timer);
@@ -38,6 +45,13 @@ export default function ImportSettingsModal({ fileCount, isOpen, onClose, onSave
   }, [isOpen]);
 
   const handleSave = useCallback(() => {
+    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+    if (appSettings) {
+      handleSettingsChange({
+        ...appSettings,
+        lastImportSettings: { filenameTemplate, organizeByDate, dateFolderFormat },
+      });
+    }
     onSave({
       filenameTemplate,
       organizeByDate,
