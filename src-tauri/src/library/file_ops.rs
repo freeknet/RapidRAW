@@ -1151,3 +1151,81 @@ pub fn rename_files(
 
     Ok(final_new_paths)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    /// A fixed instant built from local wall-clock time, so the date tokens
+    /// read back the same regardless of the machine's time zone.
+    fn local_date(y: i32, mo: u32, d: u32, h: u32, mi: u32, s: u32) -> DateTime<Utc> {
+        chrono::Local
+            .with_ymd_and_hms(y, mo, d, h, mi, s)
+            .earliest()
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn render(template: &str, file: &str, sequence: usize, total: usize) -> String {
+        generate_filename_from_template(
+            template,
+            Path::new(file),
+            sequence,
+            total,
+            &local_date(2024, 3, 7, 9, 5, 2),
+        )
+    }
+
+    #[test]
+    fn original_filename_is_the_stem_without_extension() {
+        assert_eq!(
+            render("{original_filename}_edited", "DSC01234.ARW", 1, 1),
+            "DSC01234_edited"
+        );
+    }
+
+    #[test]
+    fn original_filename_number_is_the_trailing_digits() {
+        assert_eq!(
+            render("{original_filename_number}", "DSC01234.ARW", 1, 1),
+            "01234"
+        );
+        assert_eq!(
+            render("x{original_filename_number}x", "sunset.jpg", 1, 1),
+            "xx"
+        );
+    }
+
+    #[test]
+    fn sequence_is_zero_padded_to_the_width_of_the_total() {
+        assert_eq!(render("{sequence}", "a.jpg", 7, 9), "7");
+        assert_eq!(render("{sequence}", "a.jpg", 7, 10), "07");
+        assert_eq!(render("{sequence}", "a.jpg", 42, 250), "042");
+        assert_eq!(render("{sequence}", "a.jpg", 3, 0), "3");
+    }
+
+    #[test]
+    fn date_and_time_tokens_use_two_digit_fields() {
+        assert_eq!(
+            render("{YYYY}-{MM}-{DD}_{hh}{mm}{ss}", "a.jpg", 1, 1),
+            "2024-03-07_090502"
+        );
+    }
+
+    #[test]
+    fn unknown_tokens_and_literal_text_are_left_alone() {
+        assert_eq!(
+            render("{camera}_{original_filename} final", "IMG_1.CR3", 1, 1),
+            "{camera}_IMG_1 final"
+        );
+    }
+
+    #[test]
+    fn tokens_can_repeat() {
+        assert_eq!(
+            render("{sequence}-{original_filename}-{sequence}", "a.jpg", 2, 12),
+            "02-a-02"
+        );
+    }
+}

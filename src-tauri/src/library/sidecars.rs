@@ -760,3 +760,70 @@ pub fn create_virtual_copy(
 
     Ok(new_virtual_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primary_sidecar_name_yields_the_image_name() {
+        assert_eq!(
+            parse_sidecar_name("IMG_0001.CR3.rrdata"),
+            Some(("IMG_0001.CR3", None))
+        );
+    }
+
+    #[test]
+    fn virtual_copy_sidecar_name_yields_the_image_name_and_copy_id() {
+        assert_eq!(
+            parse_sidecar_name("IMG_0001.CR3.a1b2c3.rrdata"),
+            Some(("IMG_0001.CR3", Some("a1b2c3")))
+        );
+    }
+
+    #[test]
+    fn copy_id_must_be_six_lowercase_hex_digits() {
+        // Uppercase or non-hex suffixes are part of the file name, not a copy id.
+        assert_eq!(
+            parse_sidecar_name("photo.jpg.A1B2C3.rrdata"),
+            Some(("photo.jpg.A1B2C3", None))
+        );
+        assert_eq!(
+            parse_sidecar_name("photo.jpg.zzzzzz.rrdata"),
+            Some(("photo.jpg.zzzzzz", None))
+        );
+        assert_eq!(parse_sidecar_name("short.rrdata"), Some(("short", None)));
+    }
+
+    #[test]
+    fn non_sidecar_names_are_rejected() {
+        assert_eq!(parse_sidecar_name("IMG_0001.CR3"), None);
+        assert_eq!(parse_sidecar_name("IMG_0001.CR3.xmp"), None);
+    }
+
+    #[test]
+    fn virtual_path_without_copy_maps_to_the_primary_sidecar() {
+        let source = Path::new("photos").join("IMG_0001.CR3");
+        let (path, sidecar) = parse_virtual_path(&source.to_string_lossy());
+        assert_eq!(path, source);
+        assert_eq!(sidecar, Path::new("photos").join("IMG_0001.CR3.rrdata"));
+    }
+
+    #[test]
+    fn virtual_path_with_copy_maps_to_the_copy_sidecar() {
+        let source = Path::new("photos").join("IMG_0001.CR3");
+        let virtual_path = format!("{}?vc=a1b2c3", source.to_string_lossy());
+        let (path, sidecar) = parse_virtual_path(&virtual_path);
+        assert_eq!(path, source);
+        assert_eq!(
+            sidecar,
+            Path::new("photos").join("IMG_0001.CR3.a1b2c3.rrdata")
+        );
+        // The copy sidecar name round-trips through the name parser.
+        let name = sidecar.file_name().unwrap().to_str().unwrap();
+        assert_eq!(
+            parse_sidecar_name(name),
+            Some(("IMG_0001.CR3", Some("a1b2c3")))
+        );
+    }
+}

@@ -1090,12 +1090,57 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
+/// Parses a settings file, keeping every field that is valid on its own.
+///
+/// A single field with the wrong type (an older or newer build wrote a
+/// different shape, or the file was hand-edited) used to fail the whole
+/// deserialize and reset every setting to its default, which the migration
+/// below then wrote back to disk. Instead, each top-level field is checked in
+/// isolation and only the ones that cannot be read are dropped, so they take
+/// the same default they would if they were absent. Files that are not a JSON
+/// object at all still fall back to the defaults.
+fn parse_settings(content: &str) -> AppSettings {
+    let value: Value = match serde_json::from_str(content) {
+        Ok(value) => value,
+        Err(e) => {
+            log::warn!("Settings file is not valid JSON, using defaults: {}", e);
+            return AppSettings::default();
+        }
+    };
+    let error = match serde_json::from_value::<AppSettings>(value.clone()) {
+        Ok(settings) => return settings,
+        Err(e) => e,
+    };
+    let Value::Object(fields) = value else {
+        log::warn!(
+            "Settings file is not a JSON object, using defaults: {}",
+            error
+        );
+        return AppSettings::default();
+    };
+
+    let mut kept = serde_json::Map::with_capacity(fields.len());
+    for (key, field) in fields {
+        let single = Value::Object(serde_json::Map::from_iter([(key.clone(), field.clone())]));
+        match serde_json::from_value::<AppSettings>(single) {
+            Ok(_) => {
+                kept.insert(key, field);
+            }
+            Err(e) => log::warn!("Ignoring unreadable setting '{}': {}", key, e),
+        }
+    }
+    serde_json::from_value(Value::Object(kept)).unwrap_or_else(|e| {
+        log::warn!("Settings file could not be read, using defaults: {}", e);
+        AppSettings::default()
+    })
+}
+
 fn read_settings_from_disk(app_handle: &AppHandle) -> Result<AppSettings, String> {
     let path = get_settings_path(app_handle)?;
 
     let mut settings: AppSettings = if path.exists() {
         let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).unwrap_or_default()
+        parse_settings(&content)
     } else {
         AppSettings::default()
     };
@@ -1236,5 +1281,85 @@ mod tests {
         saved["enableBaselineExposure"] = serde_json::json!(false);
         let turned_off: AppSettings = serde_json::from_value(saved).unwrap();
         assert!(!turned_off.enable_baseline_exposure);
+    }
+
+    #[test]
+    fn a_field_with_the_wrong_type_does_not_reset_the_others() {
+        let content = r#"{
+            "theme": "light",
+            "rootFolders": ["/photos"],
+            "thumbnailWorkerThreads": "four",
+            "enableBaselineExposure": false
+        }"#;
+        assert!(serde_json::from_str::<AppSettings>(content).is_err());
+
+        let settings = parse_settings(content);
+        assert_eq!(settings.theme.as_deref(), Some("light"));
+        assert_eq!(settings.root_folders, vec!["/photos".to_string()]);
+        assert!(!settings.enable_baseline_exposure);
+        // Dropped, so it gets the same value as if it were absent.
+        assert_eq!(settings.thumbnail_worker_threads, None);
+    }
+
+    #[test]
+    fn a_wrongly_typed_field_with_a_custom_default_uses_that_default() {
+        let settings = parse_settings(r#"{ "theme": "light", "hdrHeadroom": "lots" }"#);
+        assert_eq!(settings.theme.as_deref(), Some("light"));
+        assert_eq!(settings.hdr_headroom, default_hdr_headroom());
+    }
+
+    #[test]
+    fn valid_settings_parse_exactly_as_serde_would() {
+        let mut saved = serde_json::to_value(AppSettings::default()).unwrap();
+        saved["theme"] = serde_json::json!("light");
+        saved["uiScale"] = serde_json::json!(1.25);
+        let content = saved.to_string();
+
+        let parsed = parse_settings(&content);
+        assert_eq!(parsed.theme.as_deref(), Some("light"));
+        assert_eq!(parsed.ui_scale, Some(1.25));
+        assert_eq!(parsed.export_presets.len(), default_export_presets().len());
+        assert_eq!(
+            parsed.copy_paste_settings.included_adjustments,
+            default_included_adjustments()
+        );
+    }
+
+    #[test]
+    fn unparseable_or_non_object_settings_fall_back_to_defaults() {
+        let defaults = AppSettings::default();
+        for content in ["", "{ not json", "[1, 2, 3]", "\"settings\"", "null"] {
+            let parsed = parse_settings(content);
+            assert_eq!(parsed.theme, defaults.theme, "input: {content:?}");
+            assert_eq!(
+                parsed.small_thumbnail_resolution,
+                defaults.small_thumbnail_resolution
+            );
+            assert_eq!(parsed.export_presets.len(), defaults.export_presets.len());
+        }
+    }
+
+    #[test]
+    fn legacy_comfyui_address_alias_is_still_read() {
+        let settings = parse_settings(r#"{ "comfyuiAddress": "127.0.0.1:8188" }"#);
+        assert_eq!(
+            settings.ai_connector_address.as_deref(),
+            Some("127.0.0.1:8188")
+        );
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored() {
+        let settings = parse_settings(r#"{ "theme": "light", "someFutureSetting": 42 }"#);
+        assert_eq!(settings.theme.as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn ui_scale_is_clamped_and_non_finite_values_reset() {
+        assert_eq!(clamp_ui_scale(1.25), 1.25);
+        assert_eq!(clamp_ui_scale(0.1), UI_SCALE_MIN);
+        assert_eq!(clamp_ui_scale(9.0), UI_SCALE_MAX);
+        assert_eq!(clamp_ui_scale(f64::NAN), 1.0);
+        assert_eq!(clamp_ui_scale(f64::INFINITY), 1.0);
     }
 }

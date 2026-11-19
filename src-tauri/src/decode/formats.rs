@@ -116,3 +116,45 @@ pub fn is_supported_image_file<P: AsRef<Path>>(path: P) -> bool {
         .iter()
         .any(|non_raw_ext| non_raw_ext.eq_ignore_ascii_case(ext))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_extensions_match_case_insensitively() {
+        assert!(is_raw_file("IMG_0001.CR3"));
+        assert!(is_raw_file("img_0001.cr3"));
+        assert!(is_raw_file("dir/DSC.Nef"));
+        assert!(!is_raw_file("photo.jpg"));
+        assert!(!is_raw_file("no_extension"));
+        assert!(!is_raw_file("archive.cr3.zip"));
+    }
+
+    #[test]
+    fn raw_and_standard_formats_are_supported() {
+        assert!(is_supported_image_file("IMG_0001.DNG"));
+        assert!(is_supported_image_file("photo.JPEG"));
+        assert!(is_supported_image_file("scan.tif"));
+        assert!(!is_supported_image_file("notes.txt"));
+        assert!(!is_supported_image_file("IMG_0001.CR3.rrdata"));
+        assert!(!is_supported_image_file("IMG_0001.xmp"));
+    }
+
+    #[test]
+    fn hidden_files_are_not_supported_images() {
+        // macOS resource forks such as `._IMG_0001.CR3` must not be listed.
+        assert!(!is_supported_image_file("._IMG_0001.CR3"));
+        assert!(!is_supported_image_file("dir/.hidden.jpg"));
+    }
+
+    #[test]
+    fn raw_and_non_raw_extension_lists_do_not_overlap() {
+        for (raw, _) in RAW_EXTENSIONS {
+            assert!(
+                !NON_RAW_EXTENSIONS.contains(raw),
+                "{raw} is listed as both raw and non-raw"
+            );
+        }
+    }
+}
