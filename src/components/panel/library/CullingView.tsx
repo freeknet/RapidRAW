@@ -35,6 +35,45 @@ import { expandGroupedPaths } from '../../../utils/imageGrouping';
 import { IconAperture, IconFocalLength, IconIso, IconShutter } from '../editor/ExifIcons';
 
 const NOOP = () => {};
+const PREFETCH_DELAY_MS = 300;
+
+const cullingPreviewThumbKey = (path: string) => {
+  const { mediumThumbnails, thumbnails } = useProcessStore.getState();
+  return mediumThumbnails[path] || thumbnails[path] || '';
+};
+
+const renderCullingPreview = async (path: string): Promise<string> => {
+  let bytes: Uint8Array;
+  try {
+    const metadata = await invoke<{ adjustments?: unknown } | null>(Invokes.LoadMetadata, { path });
+    bytes = await invoke<Uint8Array>(Invokes.GeneratePreviewForPath, {
+      path,
+      jsAdjustments: metadata?.adjustments ?? null,
+    });
+  } catch (err) {
+    console.error('Error loading culling preview with adjustments:', err);
+    bytes = await invoke<Uint8Array>(Invokes.GeneratePreviewForPath, { path, jsAdjustments: null });
+  }
+  return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
+};
+
+// one render per path at a time, shared by the visible preview and the neighbour prefetch;
+// a finished render is kept in the preview cache even if the image was navigated away from
+const pendingCullingPreviews = new Map<string, Promise<string>>();
+
+const loadCullingPreview = (path: string): Promise<string> => {
+  const pending = pendingCullingPreviews.get(path);
+  if (pending) return pending;
+  const thumbKey = cullingPreviewThumbKey(path);
+  const request = renderCullingPreview(path)
+    .then((url) => {
+      useProcessStore.getState().setPreview(path, url, thumbKey);
+      return url;
+    })
+    .finally(() => pendingCullingPreviews.delete(path));
+  pendingCullingPreviews.set(path, request);
+  return request;
+};
 
 interface SyncViewport {
   isActive: boolean;
@@ -258,47 +297,12 @@ function CullingPreview({
 
     const fetchPreviewWithAdjustments = async () => {
       try {
-        const metadata: any = await invoke(Invokes.LoadMetadata, { path: image.path });
-        if (!active) return;
-
-        const adjustments = metadata?.adjustments ?? null;
-
-        const bytes = await invoke<Uint8Array>(Invokes.GeneratePreviewForPath, {
-          path: image.path,
-          jsAdjustments: adjustments,
-        });
-        if (!active) return;
-
-        const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
-        const localBlobUrl = URL.createObjectURL(blob);
-
-        setPreview(image.path, localBlobUrl, safeThumbKey);
-
-        if (active) {
-          setHighResSrc(localBlobUrl);
-          setIsLoading(false);
-        }
+        const url = await loadCullingPreview(image.path);
+        if (active) setHighResSrc(url);
       } catch (err) {
-        console.error('Error loading culling preview with adjustments:', err);
-
-        if (active) {
-          try {
-            const fallbackBytes = await invoke<Uint8Array>(Invokes.GeneratePreviewForPath, {
-              path: image.path,
-              jsAdjustments: null,
-            });
-            if (!active) return;
-            const blob = new Blob([new Uint8Array(fallbackBytes)], { type: 'image/jpeg' });
-            const localBlobUrl = URL.createObjectURL(blob);
-
-            setPreview(image.path, localBlobUrl, safeThumbKey);
-            setHighResSrc(localBlobUrl);
-          } catch (fallbackErr) {
-            console.error('Fallback preview generation also failed:', fallbackErr);
-          }
-          setIsLoading(false);
-        }
+        console.error('Fallback preview generation also failed:', err);
       }
+      if (active) setIsLoading(false);
     };
 
     const delayTimeout = setTimeout(() => {
@@ -1085,6 +1089,32 @@ export default function CullingView(props: any) {
       }
     }
   }, [activePath, listHandle, imageList, sidebarWidth]);
+
+  const activePreviewReady = useProcessStore((s) => Boolean(activePath && s.previews[activePath]));
+  const navDirectionRef = useRef(1);
+  const prevNavIndexRef = useRef(-1);
+
+  useEffect(() => {
+    if (!activePath) return;
+    const index = imageList.findIndex((img: ImageFile) => img.path === activePath);
+    if (index !== -1 && prevNavIndexRef.current !== -1 && index !== prevNavIndexRef.current) {
+      navDirectionRef.current = index < prevNavIndexRef.current ? -1 : 1;
+    }
+    prevNavIndexRef.current = index;
+  }, [activePath, imageList]);
+
+  useEffect(() => {
+    if (!activePath || !activePreviewReady) return;
+    const index = imageList.findIndex((img: ImageFile) => img.path === activePath);
+    const next: ImageFile | undefined = index === -1 ? undefined : imageList[index + navDirectionRef.current];
+    if (!next || next.is_cloud_placeholder) return;
+    const timer = setTimeout(() => {
+      const cached = useProcessStore.getState().previews[next.path];
+      if (cached && cached.thumbKey === cullingPreviewThumbKey(next.path)) return;
+      loadCullingPreview(next.path).catch((err) => console.warn('Culling preview prefetch failed:', err));
+    }, PREFETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [activePath, activePreviewReady, imageList]);
 
   const queueThumbnailRequest = useCallback(
     (path: string) => {
