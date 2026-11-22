@@ -153,7 +153,8 @@ pub struct GlobalAdjustments {
     pub color_grading_global: ColorGradeSettings,
     pub color_grading_blending: f32,
     pub color_grading_balance: f32,
-    _pad2: f32,
+    /// Lightness below which the grading tint fades toward black (0 keeps the tint everywhere).
+    pub color_grading_black_hold: f32,
     _pad3: f32,
 
     pub color_calibration: ColorCalibrationSettings,
@@ -504,6 +505,9 @@ fn parse_monochrome_settings(
     }
 }
 
+/// The shader holds this many points per curve; a longer count would read past the array.
+const MAX_CURVE_POINTS: usize = 16;
+
 fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point; 16] {
     let mut aligned_points = [Point::default(); 16];
     for (i, point) in frontend_points.iter().enumerate().take(16) {
@@ -826,7 +830,11 @@ fn get_global_adjustments_from_json(
         } else {
             0.0
         },
-        _pad2: 0.0,
+        color_grading_black_hold: if color_grading_visible {
+            cg_obj["blackHold"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        },
         _pad3: 0.0,
 
         color_calibration: color_cal_settings,
@@ -840,10 +848,10 @@ fn get_global_adjustments_from_json(
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
         blue_curve: convert_points_to_aligned(blue_points.clone()),
-        luma_curve_count: luma_points.len() as u32,
-        red_curve_count: red_points.len() as u32,
-        green_curve_count: green_points.len() as u32,
-        blue_curve_count: blue_points.len() as u32,
+        luma_curve_count: luma_points.len().min(MAX_CURVE_POINTS) as u32,
+        red_curve_count: red_points.len().min(MAX_CURVE_POINTS) as u32,
+        green_curve_count: green_points.len().min(MAX_CURVE_POINTS) as u32,
+        blue_curve_count: blue_points.len().min(MAX_CURVE_POINTS) as u32,
         _pad_end1: 0.0,
         _pad_end2: 0.0,
         _pad_end3: 0.0,
@@ -1010,10 +1018,10 @@ fn get_mask_adjustments_from_json(
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
         blue_curve: convert_points_to_aligned(blue_points.clone()),
-        luma_curve_count: luma_points.len() as u32,
-        red_curve_count: red_points.len() as u32,
-        green_curve_count: green_points.len() as u32,
-        blue_curve_count: blue_points.len() as u32,
+        luma_curve_count: luma_points.len().min(MAX_CURVE_POINTS) as u32,
+        red_curve_count: red_points.len().min(MAX_CURVE_POINTS) as u32,
+        green_curve_count: green_points.len().min(MAX_CURVE_POINTS) as u32,
+        blue_curve_count: blue_points.len().min(MAX_CURVE_POINTS) as u32,
         _pad_end4: 0.0,
         _pad_end5: 0.0,
         _pad_end6: 0.0,

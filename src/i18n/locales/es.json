@@ -923,6 +923,7 @@
         "exportTitle": "Exportar {{type}}",
         "importPresetsTitle": "Importar ajustes preestablecidos",
         "legacyPreset": "Ajuste preestablecido heredado",
+        "lightroomFolderTitle": "Selecciona la carpeta de ajustes preestablecidos de Lightroom",
         "presetFile": "Archivo de ajuste preestablecido",
         "rapidRawPreset": "Ajuste preestablecido de RapidRAW"
       },
@@ -955,12 +956,18 @@
       },
       "title": "Ajustes preestablecidos",
       "toasts": {
-        "importFailed": "No se pudo importar {{fileName}}: {{error}}"
+        "importFailed": "No se pudo importar {{fileName}}: {{error}}",
+        "lightroomFailed": "No se pudieron importar los ajustes preestablecidos de Lightroom: {{error}}",
+        "lightroomImported": "Se importaron {{presets}} ajustes preestablecidos de Lightroom en {{groups}} grupos",
+        "lightroomMissingProfiles": "No se encontraron algunos perfiles de Lightroom: {{profiles}}",
+        "lightroomNoPresetsInFolder": "No se encontraron ajustes preestablecidos de Lightroom en esa carpeta.",
+        "lightroomNotFound": "No se encontraron automáticamente los ajustes preestablecidos de Lightroom. Selecciona la carpeta Settings de Camera Raw."
       },
       "tooltips": {
         "explore": "Explorar ajustes de la comunidad",
         "export": "Exportar todos los ajustes a un archivo .rrpreset",
         "import": "Importar ajustes desde un archivo .rrpreset",
+        "importLightroom": "Importar ajustes preestablecidos de Lightroom",
         "saveNew": "Guardar como nuevo ajuste preestablecido"
       },
       "types": {

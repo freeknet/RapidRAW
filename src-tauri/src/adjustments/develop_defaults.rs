@@ -79,6 +79,8 @@ const NON_DEFAULTABLE_KEYS: &[&str] = &[
     "fogDepthMap",
     "motionBlurDepthMap",
     "relightNormalMap",
+    crate::library::lightroom::convert::AUTO_TONE_KEY,
+    crate::library::lightroom::focus::SUBJECT_FOCUS_KEY,
     "aiDenoiseEnabled",
     "aiUpscaleEnabled",
     "lensBlurEnabled",

@@ -2,7 +2,7 @@ use crate::app::settings::load_settings;
 use crate::app::state::AppState;
 use crate::decode::formats::is_raw_file;
 use crate::library::file_ops::write_file_atomic;
-use crate::library::preset_converter;
+use crate::library::lightroom;
 use crate::library::sidecars::parse_virtual_path;
 use crate::masks::generation::{
     MaskDefinition, generate_mask_bitmap, get_cached_or_generate_masks,
@@ -548,7 +548,10 @@ fn read_preset_file_to_string(file_path: &str) -> Result<String, String> {
     fs::read_to_string(file_path).map_err(|e| e.to_string())
 }
 
-fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, String> {
+fn parse_preset_file(
+    file_path: &str,
+    profiles: Option<&lightroom::library::ProfileIndex>,
+) -> Result<Vec<PresetItem>, String> {
     let lower_path = preset_file_display_name(file_path).to_lowercase();
     let content = read_preset_file_to_string(file_path)
         .map_err(|e| format!("Failed to read preset file: {}", e))?;
@@ -579,7 +582,7 @@ fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, String> {
         content
     };
 
-    let converted_preset = preset_converter::convert_xmp_to_preset(&xmp_content)?;
+    let converted_preset = lightroom::convert_xmp_to_preset(&xmp_content, profiles)?;
     Ok(vec![PresetItem::Preset(converted_preset)])
 }
 
@@ -624,7 +627,8 @@ fn import_preset_file_into_library(
     file_path: &str,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    let imported = parse_preset_file(file_path)?;
+    let profiles = lightroom::library::shared_profile_index(&app_handle);
+    let imported = parse_preset_file(file_path, Some(&profiles))?;
 
     let mut current_presets = load_presets(app_handle.clone())?;
     let mut taken_names = collect_top_level_preset_names(&current_presets);
@@ -658,11 +662,12 @@ pub fn handle_import_presets_from_files(
     let mut current_presets = load_presets(app_handle.clone())?;
     let mut taken_names = collect_top_level_preset_names(&current_presets);
 
+    let profiles = lightroom::library::shared_profile_index(&app_handle);
     let mut failures: Vec<PresetImportFailure> = Vec::new();
     let mut library_changed = false;
 
     for file_path in &file_paths {
-        match parse_preset_file(file_path) {
+        match parse_preset_file(file_path, Some(&profiles)) {
             Ok(imported) => {
                 library_changed |= !imported.is_empty();
                 merge_imported_items(&mut current_presets, &mut taken_names, imported);

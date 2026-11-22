@@ -948,6 +948,7 @@
         "exportTitle": "Експорт: {{type}}",
         "importPresetsTitle": "Імпортувати пресети",
         "legacyPreset": "Застарілий пресет",
+        "lightroomFolderTitle": "Виберіть теку пресетів Lightroom",
         "presetFile": "Файл пресета",
         "rapidRawPreset": "Пресет RapidRAW"
       },
@@ -980,12 +981,18 @@
       },
       "title": "Пресети",
       "toasts": {
-        "importFailed": "Не вдалося імпортувати {{fileName}}: {{error}}"
+        "importFailed": "Не вдалося імпортувати {{fileName}}: {{error}}",
+        "lightroomFailed": "Не вдалося імпортувати пресети Lightroom: {{error}}",
+        "lightroomImported": "Імпортовано пресетів Lightroom: {{presets}}, груп: {{groups}}",
+        "lightroomMissingProfiles": "Деякі профілі Lightroom не знайдено: {{profiles}}",
+        "lightroomNoPresetsInFolder": "У цій теці немає пресетів Lightroom.",
+        "lightroomNotFound": "Пресети Lightroom не знайдено автоматично. Виберіть теку Settings програми Camera Raw."
       },
       "tooltips": {
         "explore": "Переглянути пресети спільноти",
         "export": "Експортувати всі пресети у файл .rrpreset",
         "import": "Імпортувати пресети з файлу .rrpreset",
+        "importLightroom": "Імпортувати пресети з Lightroom",
         "saveNew": "Зберегти як новий пресет"
       },
       "types": {

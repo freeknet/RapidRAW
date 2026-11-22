@@ -81,6 +81,7 @@ import ImageProcessingManager from './components/managers/ImageProcessingManager
 import ImageLoaderManager from './components/managers/ImageLoaderManager';
 import { isImmichAlbumId } from './utils/immichApi';
 import { useImmichEvents } from './hooks/useImmichEvents';
+import { autoImportLightroomPresetsOnce } from './hooks/usePresets';
 
 const DND_MEASURING = { droppable: { strategy: MeasuringStrategy.Always } };
 
@@ -225,6 +226,10 @@ function App() {
 
   const defaultThumbnailSize = osPlatform === 'android' ? ThumbnailSize.Small : ThumbnailSize.Medium;
   const defaultLibraryViewMode = osPlatform === 'android' ? LibraryViewMode.Recursive : LibraryViewMode.Flat;
+
+  useEffect(() => {
+    autoImportLightroomPresetsOnce();
+  }, []);
 
   const selectedImagePathRef = useRef<string | null>(null);
   useEffect(() => {

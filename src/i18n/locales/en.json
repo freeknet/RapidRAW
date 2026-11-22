@@ -898,6 +898,7 @@
         "exportTitle": "Export {{type}}",
         "importPresetsTitle": "Import Presets",
         "legacyPreset": "Legacy Preset",
+        "lightroomFolderTitle": "Select Lightroom Presets Folder",
         "presetFile": "Preset File",
         "rapidRawPreset": "RapidRAW Preset"
       },
@@ -930,12 +931,18 @@
       },
       "title": "Presets",
       "toasts": {
-        "importFailed": "Failed to import {{fileName}}: {{error}}"
+        "importFailed": "Failed to import {{fileName}}: {{error}}",
+        "lightroomFailed": "Failed to import Lightroom presets: {{error}}",
+        "lightroomImported": "Imported {{presets}} Lightroom presets in {{groups}} groups",
+        "lightroomMissingProfiles": "Some Lightroom profiles were not found: {{profiles}}",
+        "lightroomNoPresetsInFolder": "No Lightroom presets were found in that folder.",
+        "lightroomNotFound": "Lightroom presets were not found automatically. Select the Camera Raw Settings folder."
       },
       "tooltips": {
         "explore": "Explore Community Presets",
         "export": "Export all presets to .rrpreset file",
         "import": "Import presets from .rrpreset file",
+        "importLightroom": "Import presets from Lightroom",
         "saveNew": "Save as new preset"
       },
       "types": {

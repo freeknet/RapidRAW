@@ -29,12 +29,30 @@ export interface PresetImportResult {
   failures: Array<PresetImportFailure>;
 }
 
+export interface LightroomImportResult extends PresetImportResult {
+  imported: number;
+  groups: number;
+  profiles: number;
+  missingProfiles: Array<string>;
+}
+
 function arrayMove(array: any, from: any, to: any) {
   const newArray = array.slice();
   const [item] = newArray.splice(from, 1);
   newArray.splice(to, 0, item);
   return newArray;
 }
+
+let autoImportPromise: Promise<LightroomImportResult | null> | null = null;
+
+// Pulls in the presets of an installed Lightroom once per session; the backend skips it when already current.
+export const autoImportLightroomPresetsOnce = () => {
+  autoImportPromise ??= invoke<LightroomImportResult | null>(Invokes.AutoImportLightroomPresets).catch((err) => {
+    console.error('Failed to auto-import Lightroom presets:', err);
+    return null;
+  });
+  return autoImportPromise;
+};
 
 export function usePresets(currentAdjustments: Adjustments) {
   const [presets, setPresets] = useState<Array<UserPreset>>([]);
@@ -63,7 +81,11 @@ export function usePresets(currentAdjustments: Adjustments) {
   );
 
   useEffect(() => {
-    loadPresets();
+    loadPresets().then(() =>
+      autoImportLightroomPresetsOnce().then((result) => {
+        if (result) setPresets(result.presets);
+      }),
+    );
   }, [loadPresets]);
 
   const addPreset = (
@@ -633,6 +655,22 @@ export function usePresets(currentAdjustments: Adjustments) {
     [setPresets],
   );
 
+  const importLightroomPresets = useCallback(
+    async (rootPaths?: Array<string>): Promise<LightroomImportResult> => {
+      setIsLoading(true);
+      try {
+        const result: LightroomImportResult = await invoke(Invokes.ImportLightroomPresets, {
+          rootPaths: rootPaths ?? null,
+        });
+        setPresets(result.presets);
+        return result;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [setPresets],
+  );
+
   const exportPresetsToFile = useCallback(async (presetsToExport: Array<any>, filePath: string) => {
     try {
       await invoke(Invokes.HandleExportPresetsToFile, { presetsToExport, filePath });
@@ -652,6 +690,7 @@ export function usePresets(currentAdjustments: Adjustments) {
     importPresetsFromFile,
     importPresetsFromFiles,
     importLegacyPresetsFromFile,
+    importLightroomPresets,
     isLoading,
     movePreset,
     overwritePreset,
