@@ -14,10 +14,13 @@ use super::convert::convert;
 use super::tables::{ProfileTable, bake_cube, decode_table};
 use super::xmp::{CrsDoc, LookRef, parse_crs};
 use crate::library::presets::{
-    PresetFolder, PresetImportFailure, PresetItem, load_presets, save_presets,
+    Preset, PresetFolder, PresetImportFailure, PresetItem, load_presets, save_presets,
 };
 
 pub const LUT_SIZE: usize = 33;
+/// Bump when `bake_cube` changes what it writes, so existing cubes are baked again.
+const BAKE_VERSION: u32 = 2;
+static BAKE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 const IMPORTED_FOLDER_PREFIX: &str = "lr-group-";
 const IMPORTED_PRESET_PREFIX: &str = "lr-";
 
@@ -184,7 +187,8 @@ impl ProfileIndex {
             key.push_str(&format!(" {}", (rgb_strength * 100.0).round()));
         }
 
-        let mut baked = self.baked.lock().unwrap();
+        // A panic while baking must not leave every later lookup failing on a poisoned lock.
+        let mut baked = self.baked.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = baked.get(&key) {
             return entry.as_ref().map(|b| (b.path.clone(), b.amount_range));
         }
@@ -215,25 +219,25 @@ impl ProfileIndex {
                 });
 
             let name = profile.name.as_deref().unwrap_or("Profile");
-            let digest: String = digests[digests.len() - 1].chars().take(8).collect();
-            let file_name = if rgb_strength < 1.0 {
-                format!(
-                    "{} {} {}.cube",
-                    sanitize_file_name(name),
-                    digest,
-                    (rgb_strength * 100.0).round()
-                )
-            } else {
-                format!("{} {}.cube", sanitize_file_name(name), digest)
-            };
+            // Every input of the bake is in the name, so a changed table, strength or baking method
+            // never reuses an old cube.
+            let identity = format!("{} v{} n{}", key, BAKE_VERSION, LUT_SIZE);
+            let file_name = format!("{} {}.cube", sanitize_file_name(name), name_hash(&identity));
             let path = lut_dir.join(file_name);
             if !path.exists() {
                 let refs: Vec<&ProfileTable> = tables.iter().collect();
                 let cube = bake_cube(name, &refs, LUT_SIZE);
                 fs::create_dir_all(lut_dir).ok()?;
-                if let Err(e) = fs::write(&path, cube) {
-                    log::warn!("Failed to write baked profile LUT {:?}: {}", path, e);
-                    return None;
+                // Write then rename, so a crash or a second baker never leaves a truncated cube behind.
+                let n = BAKE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let tmp = path.with_extension(format!("cube.{}-{}.tmp", std::process::id(), n));
+                let written = fs::write(&tmp, cube).and_then(|_| fs::rename(&tmp, &path));
+                if let Err(e) = written {
+                    let _ = fs::remove_file(&tmp);
+                    if !path.exists() {
+                        log::warn!("Failed to write baked profile LUT {:?}: {}", path, e);
+                        return None;
+                    }
                 }
             }
             Some(BakedLut {
@@ -365,6 +369,14 @@ fn group_rank(name: &str) -> (usize, String) {
     (pos, name.to_lowercase())
 }
 
+/// Stable across Rust versions, unlike `DefaultHasher`, so folder ids survive app updates.
+fn name_hash(name: &str) -> String {
+    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{:08x}", hash as u32)
+}
+
 fn slug(name: &str) -> String {
     let s: String = name
         .to_lowercase()
@@ -414,6 +426,7 @@ fn build_folders(scan: &Scan) -> (Vec<PresetFolder>, usize, Vec<String>) {
     names.sort_by_key(|n| group_rank(n));
 
     let mut used_ids = HashSet::new();
+    let mut used_folder_ids = HashSet::new();
     let mut missing = HashSet::new();
     let mut count = 0;
     let mut folders = Vec::new();
@@ -464,8 +477,19 @@ fn build_folders(scan: &Scan) -> (Vec<PresetFolder>, usize, Vec<String>) {
             count += 1;
         }
 
+        // Non-Latin names slug to nothing, and names differing only in case or punctuation slug alike.
+        let slugged = slug(&group);
+        let mut folder_id = if slugged.is_empty() {
+            format!("{}{}", IMPORTED_FOLDER_PREFIX, name_hash(&group))
+        } else {
+            format!("{}{}", IMPORTED_FOLDER_PREFIX, slugged)
+        };
+        if !used_folder_ids.insert(folder_id.clone()) {
+            folder_id = format!("{}-{}", folder_id, name_hash(&group));
+            used_folder_ids.insert(folder_id.clone());
+        }
         folders.push(PresetFolder {
-            id: format!("{}{}", IMPORTED_FOLDER_PREFIX, slug(&group)),
+            id: folder_id,
             name: group,
             children,
         });
@@ -473,6 +497,58 @@ fn build_folders(scan: &Scan) -> (Vec<PresetFolder>, usize, Vec<String>) {
     let mut missing: Vec<String> = missing.into_iter().collect();
     missing.sort();
     (folders, count, missing)
+}
+
+/// Replaces previously imported folders with the fresh conversion while keeping what the user did to them:
+/// presets they added to an imported folder stay in it, and imported presets they moved elsewhere are
+/// refreshed where they are instead of coming back as a second copy with the same id.
+fn merge_with_existing(current: &mut Vec<PresetItem>, folders: &mut [PresetFolder]) {
+    let replaced: HashSet<String> = folders.iter().map(|f| f.id.clone()).collect();
+    let mut user_added: HashMap<String, Vec<Preset>> = HashMap::new();
+    current.retain(|item| match item {
+        PresetItem::Folder(f) if replaced.contains(&f.id) => {
+            let kept: Vec<Preset> = f
+                .children
+                .iter()
+                .filter(|p| !p.id.starts_with(IMPORTED_PRESET_PREFIX))
+                .cloned()
+                .collect();
+            if !kept.is_empty() {
+                user_added.insert(f.id.clone(), kept);
+            }
+            false
+        }
+        _ => true,
+    });
+
+    let mut fresh: HashMap<String, Preset> = HashMap::new();
+    for folder in folders.iter() {
+        for p in &folder.children {
+            fresh.insert(p.id.clone(), p.clone());
+        }
+    }
+    let mut moved: HashSet<String> = HashSet::new();
+    let mut refresh = |p: &mut Preset| {
+        if let Some(new) = fresh.get(&p.id) {
+            let name = std::mem::take(&mut p.name);
+            *p = new.clone();
+            p.name = name;
+            moved.insert(p.id.clone());
+        }
+    };
+    for item in current.iter_mut() {
+        match item {
+            PresetItem::Preset(p) => refresh(p),
+            PresetItem::Folder(f) => f.children.iter_mut().for_each(&mut refresh),
+        }
+    }
+
+    for folder in folders.iter_mut() {
+        folder.children.retain(|p| !moved.contains(&p.id));
+        if let Some(kept) = user_added.remove(&folder.id) {
+            folder.children.extend(kept);
+        }
+    }
 }
 
 fn import(
@@ -496,8 +572,8 @@ fn import(
     let (folders, imported, missing_profiles) = build_folders(&scan);
 
     let mut current = load_presets(app_handle.clone())?;
-    let replaced: HashSet<String> = folders.iter().map(|f| f.id.clone()).collect();
-    current.retain(|item| !matches!(item, PresetItem::Folder(f) if replaced.contains(&f.id)));
+    let mut folders = folders;
+    merge_with_existing(&mut current, &mut folders);
     let mut taken: HashSet<String> = current
         .iter()
         .map(|item| match item {
@@ -538,7 +614,7 @@ pub async fn import_lightroom_presets(
 }
 
 /// Bump when the converter output changes so existing installs pick up the fix on next launch.
-const CONVERTER_VERSION: &str = "12";
+const CONVERTER_VERSION: &str = "13";
 const VERSION_MARKER: &str = "lightroom-import-version";
 
 /// Imports the Lightroom install's presets on first launch, and again after a converter update.
@@ -578,6 +654,51 @@ pub async fn auto_import_lightroom_presets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn preset(id: &str, name: &str, exposure: f64) -> Preset {
+        Preset {
+            id: id.into(),
+            name: name.into(),
+            adjustments: serde_json::json!({ "exposure": exposure }),
+            include_masks: None,
+            include_crop_transform: None,
+            preset_type: None,
+        }
+    }
+
+    #[test]
+    fn reimport_keeps_user_changes() {
+        let mut current = vec![
+            PresetItem::Folder(PresetFolder {
+                id: "lr-group-color".into(),
+                name: "Color".into(),
+                children: vec![preset("lr-a", "A", 1.0), preset("mine", "Mine", 5.0)],
+            }),
+            PresetItem::Preset(preset("lr-b", "Moved B", 1.0)),
+        ];
+        let mut folders = vec![PresetFolder {
+            id: "lr-group-color".into(),
+            name: "Color".into(),
+            children: vec![preset("lr-a", "A", 2.0), preset("lr-b", "B", 2.0)],
+        }];
+        merge_with_existing(&mut current, &mut folders);
+        let ids: Vec<&str> = folders[0].children.iter().map(|p| p.id.as_str()).collect();
+        // The user's own preset stays; the moved one is not duplicated back into the folder.
+        assert_eq!(ids, ["lr-a", "mine"]);
+        assert_eq!(folders[0].children[0].adjustments["exposure"], 2.0);
+        let PresetItem::Preset(moved) = &current[0] else {
+            panic!("moved preset lost")
+        };
+        assert_eq!(moved.name, "Moved B");
+        assert_eq!(moved.adjustments["exposure"], 2.0);
+    }
+
+    #[test]
+    fn non_latin_group_names_get_distinct_ids() {
+        assert!(slug("人像").is_empty());
+        assert_ne!(name_hash("人像"), name_hash("Портреты"));
+        assert_eq!(name_hash("Color"), name_hash("Color"));
+    }
 
     #[test]
     fn natural_sort_orders_numbers() {

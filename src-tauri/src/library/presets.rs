@@ -548,10 +548,7 @@ fn read_preset_file_to_string(file_path: &str) -> Result<String, String> {
     fs::read_to_string(file_path).map_err(|e| e.to_string())
 }
 
-fn parse_preset_file(
-    file_path: &str,
-    profiles: Option<&lightroom::library::ProfileIndex>,
-) -> Result<Vec<PresetItem>, String> {
+fn parse_preset_file(file_path: &str, app_handle: &AppHandle) -> Result<Vec<PresetItem>, String> {
     let lower_path = preset_file_display_name(file_path).to_lowercase();
     let content = read_preset_file_to_string(file_path)
         .map_err(|e| format!("Failed to read preset file: {}", e))?;
@@ -582,7 +579,9 @@ fn parse_preset_file(
         content
     };
 
-    let converted_preset = lightroom::convert_xmp_to_preset(&xmp_content, profiles)?;
+    // Only Lightroom files need the installed profiles, and indexing them scans the Adobe install.
+    let profiles = lightroom::library::shared_profile_index(app_handle);
+    let converted_preset = lightroom::convert_xmp_to_preset(&xmp_content, Some(&profiles))?;
     Ok(vec![PresetItem::Preset(converted_preset)])
 }
 
@@ -627,8 +626,7 @@ fn import_preset_file_into_library(
     file_path: &str,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    let profiles = lightroom::library::shared_profile_index(&app_handle);
-    let imported = parse_preset_file(file_path, Some(&profiles))?;
+    let imported = parse_preset_file(file_path, &app_handle)?;
 
     let mut current_presets = load_presets(app_handle.clone())?;
     let mut taken_names = collect_top_level_preset_names(&current_presets);
@@ -638,36 +636,53 @@ fn import_preset_file_into_library(
     Ok(current_presets)
 }
 
+// Imports run off the main thread: converting Lightroom files may index the Adobe install and bake LUTs.
 #[tauri::command]
-pub fn handle_import_presets_from_file(
+pub async fn handle_import_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    import_preset_file_into_library(&file_path, app_handle)
+    tauri::async_runtime::spawn_blocking(move || {
+        import_preset_file_into_library(&file_path, app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn handle_import_legacy_presets_from_file(
+pub async fn handle_import_legacy_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    import_preset_file_into_library(&file_path, app_handle)
+    tauri::async_runtime::spawn_blocking(move || {
+        import_preset_file_into_library(&file_path, app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn handle_import_presets_from_files(
+pub async fn handle_import_presets_from_files(
+    file_paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<PresetImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || import_presets_from_files(file_paths, app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn import_presets_from_files(
     file_paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<PresetImportResult, String> {
     let mut current_presets = load_presets(app_handle.clone())?;
     let mut taken_names = collect_top_level_preset_names(&current_presets);
 
-    let profiles = lightroom::library::shared_profile_index(&app_handle);
     let mut failures: Vec<PresetImportFailure> = Vec::new();
     let mut library_changed = false;
 
     for file_path in &file_paths {
-        match parse_preset_file(file_path, Some(&profiles)) {
+        match parse_preset_file(file_path, &app_handle) {
             Ok(imported) => {
                 library_changed |= !imported.is_empty();
                 merge_imported_items(&mut current_presets, &mut taken_names, imported);

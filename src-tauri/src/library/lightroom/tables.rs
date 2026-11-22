@@ -142,16 +142,24 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// Far above any table Adobe ships (a 64^3 RGB table is 1.5 MB).
+const MAX_TABLE_BYTES: usize = 64 << 20;
+
 pub fn decode_table(encoded: &str) -> Result<ProfileTable, String> {
     let bytes = decode_base85(encoded)?;
     if bytes.len() < 6 {
         return Err("Profile table is empty".into());
     }
+    // The size header comes from the file: cap what it can make us allocate or inflate.
     let expected = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
-    let mut raw = Vec::with_capacity(expected);
+    let mut raw = Vec::with_capacity(expected.min(MAX_TABLE_BYTES));
     ZlibDecoder::new(&bytes[4..])
+        .take(MAX_TABLE_BYTES as u64 + 1)
         .read_to_end(&mut raw)
         .map_err(|e| format!("Failed to inflate profile table: {}", e))?;
+    if raw.len() > MAX_TABLE_BYTES {
+        return Err("Profile table is too large".into());
+    }
 
     let mut c = Cursor { data: &raw, pos: 0 };
     let kind = c.u32()?;
@@ -161,11 +169,15 @@ pub fn decode_table(encoded: &str) -> Result<ProfileTable, String> {
             let hue = c.u32()? as usize;
             let sat = c.u32()? as usize;
             let val = (c.u32()? as usize).max(1);
-            if hue == 0 || sat < 2 || hue * sat * val > 1 << 20 {
+            let cells = hue
+                .checked_mul(sat)
+                .and_then(|n| n.checked_mul(val))
+                .filter(|&n| n <= 1 << 20);
+            let Some(cells) = cells.filter(|_| hue > 0 && sat >= 2) else {
                 return Err("Unsupported look table dimensions".into());
-            }
-            let mut data = Vec::with_capacity(hue * sat * val);
-            for _ in 0..hue * sat * val {
+            };
+            let mut data = Vec::with_capacity(cells);
+            for _ in 0..cells {
                 data.push([c.f32()?, c.f32()?, c.f32()?]);
             }
             let encoding = if c.remaining() >= 4 { c.u32()? } else { 0 };
@@ -620,6 +632,23 @@ mod tests {
         let mut bytes = (raw.len() as u32).to_le_bytes().to_vec();
         bytes.extend(enc.finish().unwrap());
         encode_base85(&bytes)
+    }
+
+    #[test]
+    fn oversized_look_table_is_rejected() {
+        // hue * sat * val overflows usize on 64-bit; it must be an error, not a panic or an empty table.
+        let mut raw = Vec::new();
+        for v in [0u32, 1, 1 << 22, 1 << 22, 1 << 20] {
+            raw.extend(v.to_le_bytes());
+        }
+        assert!(decode_table(&encode_table(&raw)).is_err());
+    }
+
+    #[test]
+    fn huge_size_header_does_not_allocate() {
+        let mut bytes = u32::MAX.to_le_bytes().to_vec();
+        bytes.extend([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        assert!(decode_table(&encode_base85(&bytes)).is_err());
     }
 
     #[test]

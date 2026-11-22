@@ -445,6 +445,14 @@ fn merge_look(
     }
     for key in CURVE_KEYS {
         if let Some(profile_curve) = profile.curves.get(key) {
+            // Older presets keep their curve under the pre-2012 key; compose it rather than letting
+            // the profile's curve shadow it.
+            let legacy = key.replace("PV2012", "");
+            if !curves.contains_key(key)
+                && let Some(old) = curves.remove(&legacy)
+            {
+                curves.insert(key.into(), old);
+            }
             let scaled = scale_curve(profile_curve, amount);
             let merged = match curves.get(key) {
                 Some(preset_curve) if !is_identity(preset_curve) => {
@@ -980,13 +988,26 @@ fn sub_mask(
 
 fn build_sub_masks(correction: &Correction) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
+    let mut skipped = false;
     for mask in &correction.masks {
+        let p = &mask.props;
+        let blend = num(p, "MaskBlendMode").unwrap_or(0.0) as i64;
         let Some(target) = mask_target(mask) else {
+            // Brushes, gradients and range masks have no equivalent. Leaving out an added area only
+            // narrows the correction; leaving out an intersected or subtracted one changes what it
+            // covers, so the whole correction is dropped instead.
+            if blend == 1 {
+                return Vec::new();
+            }
+            skipped = true;
             continue;
         };
-        let p = &mask.props;
+        // The first mask always adds. One that intersects or subtracts after a skipped mask
+        // would turn into an added area covering the opposite of what the preset meant.
+        if out.is_empty() && skipped && blend == 1 {
+            return Vec::new();
+        }
         let inverted = is_true(p, "MaskInverted").unwrap_or(false);
-        let blend = num(p, "MaskBlendMode").unwrap_or(0.0) as i64;
         let (mode, mut invert) = match (blend, inverted) {
             (1, true) => ("subtractive", false),
             (1, false) => ("intersect", false),
@@ -1110,9 +1131,16 @@ pub fn convert(doc: &CrsDoc, profiles: Option<&ProfileIndex>) -> Conversion {
         match resolved {
             Some(profile) => {
                 merge_look(&mut settings, &mut curves, profile, look.amount);
-                if let Some(index) = profiles
-                    && let Some((path, (min, max))) = index.lut_for(profile)
-                {
+                // A look stored inline may leave its color tables out; the installed profile has them.
+                let baked = profiles.and_then(|index| {
+                    index.lut_for(profile).or_else(|| {
+                        look.parameters
+                            .as_ref()
+                            .and_then(|_| index.find(look))
+                            .and_then(|installed| index.lut_for(installed))
+                    })
+                });
+                if let Some((path, (min, max))) = baked {
                     let name = profile
                         .name
                         .clone()
@@ -1271,6 +1299,61 @@ mod tests {
         assert_eq!(mask["adjustments"]["structure"], json!(5.0));
         assert_eq!(mask["subMasks"][0]["type"], json!("ai-foreground"));
         assert_eq!(mask["subMasks"][0]["mode"], json!("additive"));
+    }
+
+    fn masks_of(masks: &str) -> Value {
+        let body = format!(
+            r#"<crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="C" crs:LocalExposure2012="0.1">
+<crs:CorrectionMasks><rdf:Seq>{}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections>"#,
+            masks
+        );
+        convert(&parse_crs(&wrap(&body, "")).unwrap(), None)
+            .preset
+            .adjustments
+    }
+
+    #[test]
+    fn unsupported_masks_never_flip_a_correction() {
+        let gradient = r#"<rdf:li crs:What="Mask/Gradient" crs:MaskBlendMode="0"/>"#;
+        let subtract_subject = r#"<rdf:li crs:What="Mask/Image" crs:MaskSubType="1" crs:MaskBlendMode="1" crs:MaskInverted="true"/>"#;
+        let add_subject =
+            r#"<rdf:li crs:What="Mask/Image" crs:MaskSubType="1" crs:MaskBlendMode="0"/>"#;
+        let intersect_range = r#"<rdf:li crs:What="Mask/RangeMask" crs:MaskBlendMode="1"/>"#;
+        // Gradient minus subject would become "subject only".
+        assert!(
+            masks_of(&format!("{gradient}{subtract_subject}"))
+                .get("masks")
+                .is_none()
+        );
+        // Subject within a luminance range would widen to the whole subject.
+        assert!(
+            masks_of(&format!("{add_subject}{intersect_range}"))
+                .get("masks")
+                .is_none()
+        );
+        // Gradient plus subject only narrows to the subject.
+        let kept = masks_of(&format!("{gradient}{add_subject}"));
+        assert_eq!(
+            kept["masks"][0]["subMasks"][0]["type"],
+            json!("ai-foreground")
+        );
+    }
+
+    #[test]
+    fn legacy_tone_curve_composes_with_look_curve() {
+        let mut curves: HashMap<String, Curve> =
+            [("ToneCurve".to_string(), vec![(0.0, 40.0), (255.0, 255.0)])].into();
+        let profile = parse_crs(&wrap(
+            "<crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>255, 230</rdf:li></rdf:Seq></crs:ToneCurvePV2012>",
+            r#"crs:PresetType="Look""#,
+        ))
+        .unwrap();
+        let mut settings = Settings::new();
+        merge_look(&mut settings, &mut curves, &profile, 1.0);
+        let merged = &curves["ToneCurvePV2012"];
+        // The preset's lifted black survives under the profile's lowered white.
+        assert!(eval_curve(merged, 0.0) > 30.0, "{:?}", merged);
+        assert!(eval_curve(merged, 255.0) < 240.0, "{:?}", merged);
     }
 
     #[test]

@@ -43,6 +43,21 @@ function arrayMove(array: any, from: any, to: any) {
   return newArray;
 }
 
+// Set on presets imported from Lightroom that run Auto Tone when applied.
+export const LIGHTROOM_AUTO_TONE_KEY = 'lightroomAutoTone';
+// Set on Lightroom lens blur presets that focus on the detected subject.
+export const LIGHTROOM_SUBJECT_FOCUS_KEY = 'lightroomSubjectFocus';
+
+// The markers tell the editor what to run when applying a preset; they are not adjustments to store.
+export const withoutLightroomMarkers = (adjustments: Partial<Adjustments>): Partial<Adjustments> => {
+  const {
+    [LIGHTROOM_AUTO_TONE_KEY]: _autoTone,
+    [LIGHTROOM_SUBJECT_FOCUS_KEY]: _subjectFocus,
+    ...rest
+  } = adjustments as Record<string, unknown>;
+  return rest as Partial<Adjustments>;
+};
+
 let autoImportPromise: Promise<LightroomImportResult | null> | null = null;
 
 // Pulls in the presets of an installed Lightroom once per session; the backend skips it when already current.
@@ -81,11 +96,10 @@ export function usePresets(currentAdjustments: Adjustments) {
   );
 
   useEffect(() => {
-    loadPresets().then(() =>
-      autoImportLightroomPresetsOnce().then((result) => {
-        if (result) setPresets(result.presets);
-      }),
-    );
+    // Load only after the startup import has written its presets, so the list is never replaced by a stale
+    // import result on a later mount and no edit made meanwhile can save over the imported folders.
+    setIsLoading(true);
+    autoImportLightroomPresetsOnce().then(() => loadPresets());
   }, [loadPresets]);
 
   const addPreset = (

@@ -13,6 +13,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-toastify';
 import {
+  LIGHTROOM_AUTO_TONE_KEY,
+  LIGHTROOM_SUBJECT_FOCUS_KEY,
   LightroomImportResult,
   PresetImportFailure,
   PresetListType,
@@ -176,10 +178,6 @@ function PreviewImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-// Set on presets imported from Lightroom that run Auto Tone when applied.
-const LIGHTROOM_AUTO_TONE_KEY = 'lightroomAutoTone';
-// Set on Lightroom lens blur presets that focus on the detected subject.
-const LIGHTROOM_SUBJECT_FOCUS_KEY = 'lightroomSubjectFocus';
 const LENS_BLUR_FOCUS_KEYS = ['lensBlurMinDepth', 'lensBlurMaxDepth', 'lensBlurMinFade', 'lensBlurMaxFade'];
 const AUTO_TONE_KEYS = ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'];
 
@@ -659,6 +657,9 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
   const isProcessingQueue = useRef(false);
   const currentImagePathRef = useRef<string | null>(selectedImage?.path || null);
   const hiddenPresetMasks = useRef<Array<MaskContainer> | null>(null);
+  // The preset whose slow image effects (auto tone, subject focus) may still land, and the auto tone it got.
+  const appliedPresetRef = useRef<string | null>(null);
+  const autoToneRef = useRef<{ presetId: string; values: Partial<Adjustments> } | null>(null);
 
   const handleDragStateChange = useCallback(
     (isDragging: boolean) => {
@@ -925,6 +926,8 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
 
       setActivePresetId(null);
       setBaseAdjustments(null);
+      appliedPresetRef.current = null;
+      autoToneRef.current = null;
 
       if (isPathChanged && selectedImage?.path) {
         currentImagePathRef.current = selectedImage.path;
@@ -969,10 +972,12 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
   );
 
   const resolvePresetImageEffects = useCallback(
-    async (presetAdjustments: Partial<Adjustments>, autoTone: boolean, subjectFocus: boolean) => {
+    async (presetId: string, presetAdjustments: Partial<Adjustments>, autoTone: boolean, subjectFocus: boolean) => {
       const path = useEditorStore.getState().selectedImage?.path;
       if (!path) return;
-      const isCurrent = () => useEditorStore.getState().selectedImage?.path === path;
+      // Drop results once the user moved on to another image or reverted or replaced this preset.
+      const isCurrent = () =>
+        useEditorStore.getState().selectedImage?.path === path && appliedPresetRef.current === presetId;
 
       if (autoTone) {
         try {
@@ -984,6 +989,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
           const tone = Object.fromEntries(
             AUTO_TONE_KEYS.filter((key) => auto[key] !== undefined).map((key) => [key, auto[key]]),
           );
+          autoToneRef.current = { presetId, values: tone };
           setAdjustments((prev: Adjustments) => ({
             ...prev,
             ...tone,
@@ -1044,7 +1050,9 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     hoverPreview.show(null);
     hiddenPresetMasks.current = null;
 
+    autoToneRef.current = null;
     if (activePresetId === preset.id) {
+      appliedPresetRef.current = null;
       setActivePresetId(null);
       if (baseAdjustments) {
         setAdjustments(baseAdjustments);
@@ -1055,6 +1063,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
 
     setBaseAdjustments(adjustments);
     setActivePresetId(preset.id);
+    appliedPresetRef.current = preset.id;
     setPresetIntensity(100);
 
     const { [LIGHTROOM_AUTO_TONE_KEY]: autoTone, [LIGHTROOM_SUBJECT_FOCUS_KEY]: subjectFocus } = preset.adjustments;
@@ -1069,7 +1078,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     );
 
     if (autoTone || preset.adjustments.lensBlurEnabled) {
-      resolvePresetImageEffects(preset.adjustments, !!autoTone, !!subjectFocus);
+      resolvePresetImageEffects(preset.id, preset.adjustments, !!autoTone, !!subjectFocus);
     }
   };
 
@@ -1082,7 +1091,9 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
         [LIGHTROOM_SUBJECT_FOCUS_KEY]: subjectFocus,
         ...presetAdjustments
       } = preset.adjustments;
-      const mixed = mixAdjustments(presetAdjustments, intensity, getDefaultAdjustments());
+      // Auto tone is part of what the preset did, so it scales with the rest.
+      const autoTone = autoToneRef.current?.presetId === preset.id ? autoToneRef.current.values : {};
+      const mixed = mixAdjustments({ ...presetAdjustments, ...autoTone }, intensity, getDefaultAdjustments());
       // Keep the focus measured on this image rather than the preset's placeholder range.
       if (subjectFocus) LENS_BLUR_FOCUS_KEYS.forEach((key) => delete mixed[key]);
 
