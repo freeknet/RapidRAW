@@ -2,8 +2,8 @@ use crate::app::settings::load_settings;
 use crate::app::state::AppState;
 use crate::decode::formats::is_raw_file;
 use crate::library::file_ops::write_file_atomic;
-use crate::library::lightroom;
 use crate::library::sidecars::parse_virtual_path;
+use crate::library::xmp_presets;
 use crate::masks::generation::{
     MaskDefinition, generate_mask_bitmap, get_cached_or_generate_masks,
 };
@@ -580,8 +580,8 @@ fn parse_preset_file(file_path: &str, app_handle: &AppHandle) -> Result<Vec<Pres
     };
 
     // Only Lightroom files need the installed profiles, and indexing them scans the Adobe install.
-    let profiles = lightroom::library::shared_profile_index(app_handle);
-    let converted_preset = lightroom::convert_xmp_to_preset(&xmp_content, Some(&profiles))?;
+    let profiles = xmp_presets::library::shared_profile_index(app_handle);
+    let converted_preset = xmp_presets::convert_xmp_to_preset(&xmp_content, Some(&profiles))?;
     Ok(vec![PresetItem::Preset(converted_preset)])
 }
 

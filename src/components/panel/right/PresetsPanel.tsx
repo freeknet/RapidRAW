@@ -13,13 +13,13 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-toastify';
 import {
-  LIGHTROOM_AUTO_TONE_KEY,
-  LIGHTROOM_SUBJECT_FOCUS_KEY,
-  LightroomImportResult,
+  getPresetMarkers,
   PresetImportFailure,
   PresetListType,
   usePresets,
   UserPreset,
+  withoutPresetMarkers,
+  XmpImportResult,
 } from '../../../hooks/usePresets';
 import { useContextMenu } from '../../../context/ContextMenuContext';
 import {
@@ -212,11 +212,7 @@ const evaluateCurveY = (curve: Array<{ x: number; y: number }>, targetX: number)
 };
 
 const applyPresetAdjustments = (adjustments: Adjustments, preset: Preset): Adjustments => {
-  const {
-    [LIGHTROOM_AUTO_TONE_KEY]: _autoTone,
-    [LIGHTROOM_SUBJECT_FOCUS_KEY]: _subjectFocus,
-    ...presetAdjustments
-  } = preset.adjustments;
+  const presetAdjustments = withoutPresetMarkers(preset.adjustments);
   const presetMasks = presetAdjustments.masks || [];
   return {
     ...adjustments,
@@ -626,7 +622,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     duplicatePreset,
     exportPresetsToFile,
     importPresetsFromFiles,
-    importLightroomPresets,
+    importXmpPresets,
     isLoading,
     movePreset,
     overwritePreset,
@@ -1018,7 +1014,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
 
       if (subjectFocus) {
         try {
-          const focus = await invoke<Partial<Adjustments> | null>(Invokes.LightroomSubjectFocus, {
+          const focus = await invoke<Partial<Adjustments> | null>(Invokes.PresetSubjectFocus, {
             depthMap,
             jsAdjustments: useEditorStore.getState().adjustments,
           });
@@ -1066,7 +1062,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     appliedPresetRef.current = preset.id;
     setPresetIntensity(100);
 
-    const { [LIGHTROOM_AUTO_TONE_KEY]: autoTone, [LIGHTROOM_SUBJECT_FOCUS_KEY]: subjectFocus } = preset.adjustments;
+    const { autoTone, subjectFocus } = getPresetMarkers(preset.adjustments);
     const presetMasks = preset.adjustments.masks || [];
     if (hasAiSubMasks(presetMasks)) {
       resolvePresetAiMasks(presetMasks);
@@ -1085,12 +1081,8 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
   const handleIntensityChange = useCallback(
     (preset: Preset, intensity: number) => {
       setPresetIntensity(intensity);
-      const {
-        masks: presetMasks,
-        [LIGHTROOM_AUTO_TONE_KEY]: _autoTone,
-        [LIGHTROOM_SUBJECT_FOCUS_KEY]: subjectFocus,
-        ...presetAdjustments
-      } = preset.adjustments;
+      const { subjectFocus } = getPresetMarkers(preset.adjustments);
+      const { masks: presetMasks, ...presetAdjustments } = withoutPresetMarkers(preset.adjustments);
       // Auto tone is part of what the preset did, so it scales with the rest.
       const autoTone = autoToneRef.current?.presetId === preset.id ? autoToneRef.current.values : {};
       const mixed = mixAdjustments({ ...presetAdjustments, ...autoTone }, intensity, getDefaultAdjustments());
@@ -1273,7 +1265,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     }
   };
 
-  const reportLightroomImport = (result: LightroomImportResult) => {
+  const reportXmpImport = (result: XmpImportResult) => {
     setFolderPreviewsGenerated(new Set<string>());
     setPreviews({});
     toast.success(t('editor.presets.toasts.lightroomImported', { presets: result.imported, groups: result.groups }));
@@ -1285,13 +1277,13 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     });
   };
 
-  const handleImportLightroomPresets = async () => {
+  const handleImportXmpPresets = async () => {
     try {
-      reportLightroomImport(await importLightroomPresets());
+      reportXmpImport(await importXmpPresets());
       return;
     } catch (error) {
       const message = String(error);
-      if (message !== 'NO_LIGHTROOM_INSTALL' && message !== 'NO_LIGHTROOM_PRESETS') {
+      if (message !== 'NO_ADOBE_INSTALL' && message !== 'NO_XMP_PRESETS') {
         console.error('Failed to import Lightroom presets:', error);
         toast.error(t('editor.presets.toasts.lightroomFailed', { error: message }));
         return;
@@ -1302,12 +1294,12 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     try {
       const folder = await openDialog({ directory: true, title: t('editor.presets.dialog.lightroomFolderTitle') });
       if (!folder || Array.isArray(folder)) return;
-      reportLightroomImport(await importLightroomPresets([folder]));
+      reportXmpImport(await importXmpPresets([folder]));
     } catch (error) {
       const message = String(error);
       console.error('Failed to import Lightroom presets:', error);
       toast.error(
-        message === 'NO_LIGHTROOM_PRESETS'
+        message === 'NO_XMP_PRESETS'
           ? t('editor.presets.toasts.lightroomNoPresetsInFolder')
           : t('editor.presets.toasts.lightroomFailed', { error: message }),
       );
@@ -1532,7 +1524,7 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
               <button
                 className="p-2 rounded-full hover:bg-surface transition-colors"
                 disabled={isLoading}
-                onClick={handleImportLightroomPresets}
+                onClick={handleImportXmpPresets}
                 data-tooltip={t('editor.presets.tooltips.importLightroom')}
               >
                 <Aperture size={18} />

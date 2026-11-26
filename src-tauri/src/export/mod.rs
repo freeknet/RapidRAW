@@ -581,15 +581,12 @@ pub(crate) async fn export_images_impl(
                             .map_err(|e| {
                                 format!("Failed to generate AI results for export: {}", e)
                             })?;
-                            if adj
-                                .get(crate::library::lightroom::focus::SUBJECT_FOCUS_KEY)
-                                .is_some()
-                            {
+                            if crate::library::xmp_presets::focus::wants_subject_focus(&adj) {
                                 let base = crate::ai::jobs::decode_source(
                                     &app_handle_clone,
                                     &source_path,
                                 )?;
-                                crate::library::lightroom::focus::resolve_subject_focus(
+                                crate::library::xmp_presets::focus::resolve_subject_focus(
                                     &app_handle_clone,
                                     &base,
                                     is_raw,

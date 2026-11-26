@@ -11,7 +11,9 @@ use crate::library::presets::Preset;
 
 /// Key carried in a converted preset when Lightroom would run Auto Tone on apply.
 /// The frontend resolves it against the open image and never stores it.
-pub const AUTO_TONE_KEY: &str = "lightroomAutoTone";
+pub const AUTO_TONE_KEY: &str = "presetAutoTone";
+/// The same marker as written by earlier builds of the importer.
+pub const LEGACY_AUTO_TONE_KEY: &str = "lightroomAutoTone";
 
 type Settings = HashMap<String, String>;
 
@@ -1204,7 +1206,7 @@ pub fn convert(doc: &CrsDoc, profiles: Option<&ProfileIndex>) -> Conversion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::library::lightroom::xmp::parse_crs;
+    use crate::library::xmp_presets::xmp::parse_crs;
 
     fn wrap(body: &str, attrs: &str) -> String {
         format!(

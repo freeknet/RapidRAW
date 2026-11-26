@@ -15,7 +15,16 @@ use crate::ai::processing::run_birefnet_model;
 use crate::app::state::AppState;
 
 /// Converted presets with no focal range carry this so the editor focuses on the subject on apply.
-pub const SUBJECT_FOCUS_KEY: &str = "lightroomSubjectFocus";
+pub const SUBJECT_FOCUS_KEY: &str = "presetSubjectFocus";
+/// The same marker as written by earlier builds of the importer.
+pub const LEGACY_SUBJECT_FOCUS_KEY: &str = "lightroomSubjectFocus";
+
+/// Whether converted adjustments ask for the subject focus to be resolved.
+pub fn wants_subject_focus(adjustments: &Value) -> bool {
+    [SUBJECT_FOCUS_KEY, LEGACY_SUBJECT_FOCUS_KEY]
+        .iter()
+        .any(|key| adjustments.get(*key).and_then(Value::as_bool) == Some(true))
+}
 
 const ANALYSIS_SIZE: u32 = 1024;
 const SUBJECT_THRESHOLD: u8 = 128;
@@ -105,10 +114,13 @@ pub fn resolve_subject_focus(
     is_raw: bool,
     adjustments: &mut Value,
 ) -> Result<(), String> {
+    let wanted = wants_subject_focus(adjustments);
     let Some(flags) = adjustments.as_object_mut() else {
         return Ok(());
     };
-    if flags.remove(SUBJECT_FOCUS_KEY).and_then(|v| v.as_bool()) != Some(true) {
+    flags.remove(SUBJECT_FOCUS_KEY);
+    flags.remove(LEGACY_SUBJECT_FOCUS_KEY);
+    if !wanted {
         return Ok(());
     }
     let Some(depth_map) = adjustments["lensBlurDepthMap"]
@@ -134,7 +146,7 @@ pub fn resolve_subject_focus(
 
 /// Returns the focus range for the loaded image's subject, or `None` when no subject is found.
 #[tauri::command]
-pub async fn lightroom_subject_focus(
+pub async fn preset_subject_focus(
     depth_map: String,
     js_adjustments: Value,
     state: State<'_, AppState>,

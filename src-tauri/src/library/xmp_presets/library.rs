@@ -21,8 +21,11 @@ pub const LUT_SIZE: usize = 33;
 /// Bump when `bake_cube` changes what it writes, so existing cubes are baked again.
 const BAKE_VERSION: u32 = 2;
 static BAKE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-const IMPORTED_FOLDER_PREFIX: &str = "lr-group-";
-const IMPORTED_PRESET_PREFIX: &str = "lr-";
+const IMPORTED_FOLDER_PREFIX: &str = "xmp-group-";
+const IMPORTED_PRESET_PREFIX: &str = "xmp-";
+/// Prefixes used by earlier builds of the importer, migrated on the next import.
+const LEGACY_FOLDER_PREFIX: &str = "lr-group-";
+const LEGACY_PRESET_PREFIX: &str = "lr-";
 
 /// Lightroom lists its built-in groups in a fixed order rather than
 /// alphabetically. Groups not listed here follow, sorted by name.
@@ -269,7 +272,7 @@ pub fn lut_dir(app_handle: &AppHandle) -> Option<PathBuf> {
         .path()
         .app_data_dir()
         .ok()
-        .map(|d| d.join("presets").join("lightroom-profiles"))
+        .map(|d| d.join("presets").join("xmp-profiles"))
 }
 
 struct Scan {
@@ -391,7 +394,7 @@ fn slug(name: &str) -> String {
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct LightroomImportResult {
+pub struct XmpImportResult {
     pub presets: Vec<PresetItem>,
     pub imported: usize,
     pub groups: usize,
@@ -499,10 +502,33 @@ fn build_folders(scan: &Scan) -> (Vec<PresetFolder>, usize, Vec<String>) {
     (folders, count, missing)
 }
 
+/// Gives items imported by earlier builds the current id prefixes, so they are recognised as imported.
+fn migrate_legacy_ids(current: &mut [PresetItem]) {
+    let migrate = |id: &mut String, legacy: &str, prefix: &str| {
+        if let Some(rest) = id.strip_prefix(legacy) {
+            *id = format!("{}{}", prefix, rest);
+        }
+    };
+    for item in current.iter_mut() {
+        match item {
+            PresetItem::Preset(p) => {
+                migrate(&mut p.id, LEGACY_PRESET_PREFIX, IMPORTED_PRESET_PREFIX)
+            }
+            PresetItem::Folder(f) => {
+                migrate(&mut f.id, LEGACY_FOLDER_PREFIX, IMPORTED_FOLDER_PREFIX);
+                for p in &mut f.children {
+                    migrate(&mut p.id, LEGACY_PRESET_PREFIX, IMPORTED_PRESET_PREFIX);
+                }
+            }
+        }
+    }
+}
+
 /// Replaces previously imported folders with the fresh conversion while keeping what the user did to them:
 /// presets they added to an imported folder stay in it, and imported presets they moved elsewhere are
 /// refreshed where they are instead of coming back as a second copy with the same id.
 fn merge_with_existing(current: &mut Vec<PresetItem>, folders: &mut [PresetFolder]) {
+    migrate_legacy_ids(current);
     let replaced: HashSet<String> = folders.iter().map(|f| f.id.clone()).collect();
     let mut user_added: HashMap<String, Vec<Preset>> = HashMap::new();
     current.retain(|item| match item {
@@ -551,23 +577,20 @@ fn merge_with_existing(current: &mut Vec<PresetItem>, folders: &mut [PresetFolde
     }
 }
 
-fn import(
-    roots: Option<Vec<String>>,
-    app_handle: &AppHandle,
-) -> Result<LightroomImportResult, String> {
+fn import(roots: Option<Vec<String>>, app_handle: &AppHandle) -> Result<XmpImportResult, String> {
     let defaults = default_settings_roots();
     let preset_roots: Vec<PathBuf> = match roots {
         Some(r) if !r.is_empty() => r.into_iter().map(PathBuf::from).collect(),
         _ => defaults.clone(),
     };
     if preset_roots.is_empty() {
-        return Err("NO_LIGHTROOM_INSTALL".to_string());
+        return Err("NO_ADOBE_INSTALL".to_string());
     }
 
     let lut_dir = lut_dir(app_handle);
     let scan = scan(&preset_roots, &defaults, lut_dir);
     if scan.presets.is_empty() {
-        return Err("NO_LIGHTROOM_PRESETS".to_string());
+        return Err("NO_XMP_PRESETS".to_string());
     }
     let (folders, imported, missing_profiles) = build_folders(&scan);
 
@@ -593,7 +616,7 @@ fn import(
 
     save_presets(current.clone(), app_handle.clone())?;
 
-    Ok(LightroomImportResult {
+    Ok(XmpImportResult {
         presets: current,
         imported,
         groups,
@@ -604,51 +627,13 @@ fn import(
 }
 
 #[tauri::command]
-pub async fn import_lightroom_presets(
+pub async fn import_xmp_presets(
     root_paths: Option<Vec<String>>,
     app_handle: AppHandle,
-) -> Result<LightroomImportResult, String> {
+) -> Result<XmpImportResult, String> {
     tauri::async_runtime::spawn_blocking(move || import(root_paths, &app_handle))
         .await
         .map_err(|e| e.to_string())?
-}
-
-/// Bump when the converter output changes so existing installs pick up the fix on next launch.
-const CONVERTER_VERSION: &str = "13";
-const VERSION_MARKER: &str = "lightroom-import-version";
-
-/// Imports the Lightroom install's presets on first launch, and again after a converter update.
-/// Returns `None` when there is nothing to do or no Lightroom install was found.
-#[tauri::command]
-pub async fn auto_import_lightroom_presets(
-    app_handle: AppHandle,
-) -> Result<Option<LightroomImportResult>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        if default_settings_roots().is_empty() {
-            return Ok(None);
-        }
-        let marker = app_handle
-            .path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join("presets")
-            .join(VERSION_MARKER);
-        if fs::read_to_string(&marker).is_ok_and(|v| v.trim() == CONVERTER_VERSION) {
-            return Ok(None);
-        }
-        let result = match import(None, &app_handle) {
-            Ok(result) => result,
-            Err(e) if e == "NO_LIGHTROOM_PRESETS" => return Ok(None),
-            Err(e) => return Err(e),
-        };
-        if let Some(parent) = marker.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        fs::write(&marker, CONVERTER_VERSION).map_err(|e| e.to_string())?;
-        Ok(Some(result))
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
@@ -668,6 +653,7 @@ mod tests {
 
     #[test]
     fn reimport_keeps_user_changes() {
+        // Imported by an earlier build, which used the lr- prefixes.
         let mut current = vec![
             PresetItem::Folder(PresetFolder {
                 id: "lr-group-color".into(),
@@ -677,14 +663,19 @@ mod tests {
             PresetItem::Preset(preset("lr-b", "Moved B", 1.0)),
         ];
         let mut folders = vec![PresetFolder {
-            id: "lr-group-color".into(),
+            id: "xmp-group-color".into(),
             name: "Color".into(),
-            children: vec![preset("lr-a", "A", 2.0), preset("lr-b", "B", 2.0)],
+            children: vec![preset("xmp-a", "A", 2.0), preset("xmp-b", "B", 2.0)],
         }];
         merge_with_existing(&mut current, &mut folders);
+        assert_eq!(
+            current.len(),
+            1,
+            "the old folder is replaced, not kept beside the new one"
+        );
         let ids: Vec<&str> = folders[0].children.iter().map(|p| p.id.as_str()).collect();
         // The user's own preset stays; the moved one is not duplicated back into the folder.
-        assert_eq!(ids, ["lr-a", "mine"]);
+        assert_eq!(ids, ["xmp-a", "mine"]);
         assert_eq!(folders[0].children[0].adjustments["exposure"], 2.0);
         let PresetItem::Preset(moved) = &current[0] else {
             panic!("moved preset lost")
@@ -734,7 +725,7 @@ mod tests {
     /// `cargo test lightroom_install -- --ignored --nocapture`.
     #[test]
     #[ignore]
-    fn lightroom_install_converts() {
+    fn adobe_install_converts() {
         let roots = default_settings_roots();
         assert!(!roots.is_empty(), "no Lightroom install found");
         let dir = std::env::temp_dir().join("rapidraw-lr-luts");

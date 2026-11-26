@@ -36,7 +36,7 @@ import { getDefaultAdjustmentsFor } from '../../../utils/developDefaults';
 import { Preset, type OverlayMode } from '../../../types/editor';
 import { useLibraryStore } from '../../../store/useLibraryStore';
 import { useEditorStore } from '../../../store/useEditorStore';
-import { usePresets, withoutLightroomMarkers } from '../../../hooks/usePresets';
+import { usePresets, withoutPresetMarkers } from '../../../hooks/usePresets';
 import { useContextMenu } from '../../../context/ContextMenuContext';
 
 import CompositionOverlays from '../editor/overlays/CompositionOverlays';
@@ -407,7 +407,7 @@ export default function TetheringPanel({ onLibraryRefresh, onImageSelect }: Teth
         try {
           await invoke(Invokes.ApplyAdjustmentsToPaths, {
             paths: [filePath],
-            adjustments: withoutLightroomMarkers(autoApplyPreset.adjustments),
+            adjustments: withoutPresetMarkers(autoApplyPreset.adjustments),
           });
         } catch {
           toast.error(t('tethering.toasts.presetApplyFailed'));
