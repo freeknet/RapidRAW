@@ -55,12 +55,48 @@ export interface PresetImportResult {
   failures: Array<PresetImportFailure>;
 }
 
+export interface XmpImportResult extends PresetImportResult {
+  imported: number;
+  groups: number;
+  profiles: number;
+  missingProfiles: Array<string>;
+}
+
 function arrayMove(array: any, from: any, to: any) {
   const newArray = array.slice();
   const [item] = newArray.splice(from, 1);
   newArray.splice(to, 0, item);
   return newArray;
 }
+
+// Set on converted presets that run Auto Tone when applied.
+export const PRESET_AUTO_TONE_KEY = 'presetAutoTone';
+// Set on converted lens blur presets that focus on the detected subject.
+export const PRESET_SUBJECT_FOCUS_KEY = 'presetSubjectFocus';
+// The same markers as written by earlier builds of the importer.
+const LEGACY_AUTO_TONE_KEY = 'lightroomAutoTone';
+const LEGACY_SUBJECT_FOCUS_KEY = 'lightroomSubjectFocus';
+
+// What a converted preset asks the editor to run when it is applied.
+export const getPresetMarkers = (adjustments: Partial<Adjustments>) => {
+  const flags = adjustments as Record<string, unknown>;
+  return {
+    autoTone: !!(flags[PRESET_AUTO_TONE_KEY] || flags[LEGACY_AUTO_TONE_KEY]),
+    subjectFocus: !!(flags[PRESET_SUBJECT_FOCUS_KEY] || flags[LEGACY_SUBJECT_FOCUS_KEY]),
+  };
+};
+
+// The markers tell the editor what to run when applying a preset; they are not adjustments to store.
+export const withoutPresetMarkers = (adjustments: Partial<Adjustments>): Partial<Adjustments> => {
+  const {
+    [PRESET_AUTO_TONE_KEY]: _autoTone,
+    [PRESET_SUBJECT_FOCUS_KEY]: _subjectFocus,
+    [LEGACY_AUTO_TONE_KEY]: _legacyAutoTone,
+    [LEGACY_SUBJECT_FOCUS_KEY]: _legacySubjectFocus,
+    ...rest
+  } = adjustments as Record<string, unknown>;
+  return rest as Partial<Adjustments>;
+};
 
 export function usePresets(currentAdjustments: Adjustments) {
   const [presets, setPresets] = useState<Array<UserPreset>>([]);
@@ -659,6 +695,22 @@ export function usePresets(currentAdjustments: Adjustments) {
     [setPresets],
   );
 
+  const importXmpPresets = useCallback(
+    async (rootPaths?: Array<string>): Promise<XmpImportResult> => {
+      setIsLoading(true);
+      try {
+        const result: XmpImportResult = await invoke(Invokes.ImportXmpPresets, {
+          rootPaths: rootPaths ?? null,
+        });
+        setPresets(result.presets);
+        return result;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [setPresets],
+  );
+
   const exportPresetsToFile = useCallback(async (presetsToExport: Array<any>, filePath: string) => {
     try {
       await invoke(Invokes.HandleExportPresetsToFile, { presetsToExport, filePath });
@@ -678,6 +730,7 @@ export function usePresets(currentAdjustments: Adjustments) {
     importPresetsFromFile,
     importPresetsFromFiles,
     importLegacyPresetsFromFile,
+    importXmpPresets,
     isLoading,
     movePreset,
     overwritePreset,

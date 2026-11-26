@@ -898,6 +898,7 @@
         "exportTitle": "{{type}}を書き出し",
         "importPresetsTitle": "プリセットをインポート",
         "legacyPreset": "レガシープリセット",
+        "lightroomFolderTitle": "Lightroom プリセットフォルダーを選択",
         "presetFile": "プリセットファイル",
         "rapidRawPreset": "RapidRAWプリセット"
       },
@@ -930,12 +931,18 @@
       },
       "title": "プリセット",
       "toasts": {
-        "importFailed": "{{fileName}} のインポートに失敗しました: {{error}}"
+        "importFailed": "{{fileName}} のインポートに失敗しました: {{error}}",
+        "lightroomFailed": "Lightroom プリセットを読み込めませんでした: {{error}}",
+        "lightroomImported": "{{groups}} 個のグループに {{presets}} 個の Lightroom プリセットを読み込みました",
+        "lightroomMissingProfiles": "一部の Lightroom プロファイルが見つかりませんでした: {{profiles}}",
+        "lightroomNoPresetsInFolder": "このフォルダーに Lightroom プリセットはありません。",
+        "lightroomNotFound": "Lightroom プリセットが自動で見つかりませんでした。Camera Raw の Settings フォルダーを選択してください。"
       },
       "tooltips": {
         "explore": "コミュニティのプリセットを検索",
         "export": "すべてのプリセットを .rrpreset ファイルとして書き出し",
         "import": ".rrpreset ファイルからプリセットをインポート",
+        "importLightroom": "Lightroom からプリセットを読み込む",
         "saveNew": "新規プリセットとして保存"
       },
       "types": {

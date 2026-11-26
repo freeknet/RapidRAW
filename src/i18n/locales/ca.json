@@ -926,6 +926,7 @@
         "exportTitle": "Exportar {{type}}",
         "importPresetsTitle": "Importar ajustos preestablerts",
         "legacyPreset": "Ajust preestablert antic",
+        "lightroomFolderTitle": "Selecciona la carpeta de valors predefinits de Lightroom",
         "presetFile": "Fitxer d'ajust preestablert",
         "rapidRawPreset": "Ajust preestablert de RapidRAW"
       },
@@ -958,12 +959,18 @@
       },
       "title": "Ajustos preestablerts",
       "toasts": {
-        "importFailed": "No s'ha pogut importar {{fileName}}: {{error}}"
+        "importFailed": "No s'ha pogut importar {{fileName}}: {{error}}",
+        "lightroomFailed": "No s'han pogut importar els valors predefinits de Lightroom: {{error}}",
+        "lightroomImported": "S'han importat {{presets}} valors predefinits de Lightroom en {{groups}} grups",
+        "lightroomMissingProfiles": "No s'han trobat alguns perfils de Lightroom: {{profiles}}",
+        "lightroomNoPresetsInFolder": "No s'han trobat valors predefinits de Lightroom en aquesta carpeta.",
+        "lightroomNotFound": "No s'han trobat automàticament els valors predefinits de Lightroom. Selecciona la carpeta Settings de Camera Raw."
       },
       "tooltips": {
         "explore": "Explorar ajustos de la comunitat",
         "export": "Exportar tots els ajustos preestablerts a un fitxer .rrpreset",
         "import": "Importar ajustos preestablerts des d'un fitxer .rrpreset",
+        "importLightroom": "Importa valors predefinits de Lightroom",
         "saveNew": "Desar com a nou ajust preestablert"
       },
       "types": {

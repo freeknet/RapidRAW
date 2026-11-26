@@ -191,11 +191,19 @@ const ColorGradingPanel = ({ adjustments, setAdjustments, onDragStateChange }: C
   const isExpanded = useUIStore((state) => state.isColorGradingExpanded);
   const colorGrading = adjustments.colorGrading || INITIAL_ADJUSTMENTS.colorGrading;
 
+  // An imported Lightroom preset fades its toning out toward black (`blackHold`). Once the grading is edited
+  // here it behaves like any other RapidRAW grading again, so the user's own tints reach the shadows.
+  const editableGrading = (prev: Partial<Adjustments>) => {
+    const { blackHold: _blackHold, ...grading } = (prev.colorGrading ||
+      INITIAL_ADJUSTMENTS.colorGrading) as Adjustments['colorGrading'] & { blackHold?: number };
+    return grading;
+  };
+
   const handleChange = (grading: ColorGrading, newValue: HueSatLum) => {
     setAdjustments((prev: Partial<Adjustments>) => ({
       ...prev,
       colorGrading: {
-        ...(prev.colorGrading || INITIAL_ADJUSTMENTS.colorGrading),
+        ...editableGrading(prev),
         [grading]: newValue,
       },
     }));
@@ -205,7 +213,7 @@ const ColorGradingPanel = ({ adjustments, setAdjustments, onDragStateChange }: C
     setAdjustments((prev: Partial<Adjustments>) => ({
       ...prev,
       colorGrading: {
-        ...(prev.colorGrading || INITIAL_ADJUSTMENTS.colorGrading),
+        ...editableGrading(prev),
         [grading]: parseFloat(value),
       },
     }));
