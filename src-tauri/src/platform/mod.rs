@@ -1,8 +1,9 @@
 pub mod android;
 pub mod appimage;
+#[cfg(target_os = "linux")]
+pub mod linux_graphics;
 pub mod main_window;
 pub mod monitor;
-pub mod nvidia_webkit;
 pub mod viewer_window;
 #[cfg(target_os = "linux")]
 pub mod wayland_subsurface;

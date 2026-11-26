@@ -1,7 +1,8 @@
 use crate::decode::as_shot::AsShot;
-use crate::decode::demosaic::Mosaic;
+use crate::decode::demosaic::{Mosaic, white_level};
 use crate::decode::develop::{self, Camera, Finish};
 use crate::decode::dng_opcodes::{OpcodeList3, Placement};
+use crate::decode::hot_pixels::repair_hot_pixels;
 use crate::decode::white_balance::WhiteBalance;
 use crate::render::color_space::{GamutCompression, fit_gamut, gamut_limits, srgb_to_working};
 use crate::render::geometry::apply_orientation;
@@ -16,7 +17,7 @@ use rawler::{
         xyz::{FlatColorMatrix, Illuminant},
     },
     pixarray::Color2D,
-    rawimage::{RawImage, RawPhotometricInterpretation},
+    rawimage::{RawImage, RawImageData, RawPhotometricInterpretation},
     rawsource::RawSource,
 };
 use rayon::prelude::*;
@@ -248,6 +249,7 @@ impl CameraToWorking {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn develop_raw_image(
     file_bytes: &[u8],
     fast_demosaic: bool,
@@ -255,6 +257,7 @@ pub fn develop_raw_image(
     linear_mode: String,
     denoise: f32,
     sharpen: f32,
+    remove_hot_pixels: bool,
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
 ) -> Result<DynamicImage> {
     let check_cancel = || -> Result<()> {
@@ -280,6 +283,10 @@ pub fn develop_raw_image(
         raw_image.active_area =
             extend_active_area_to_crop(raw_image.active_area, raw_image.crop_area, raw_image.dim());
     }
+    if remove_hot_pixels {
+        check_cancel()?;
+        repair_hot_pixels(&mut raw_image);
+    }
 
     let orientation = metadata_orientation(decoder.as_ref(), &source)?;
     // OpcodeList3 refers to the unrotated image, so the rotation waits for it
@@ -298,6 +305,7 @@ pub fn develop_raw_image(
     };
 
     let is_linear_format = is_linear_raw_format(&raw_image);
+    let is_floating_point = matches!(raw_image.data, RawImageData::Float(_));
 
     let (apply_ungamma, apply_calibration) = match linear_mode.as_str() {
         "gamma" => (true, true),
@@ -306,12 +314,7 @@ pub fn develop_raw_image(
         _ => (false, true),
     };
 
-    let original_white_level = raw_image
-        .whitelevel
-        .0
-        .first()
-        .cloned()
-        .unwrap_or(u16::MAX as u32) as f32;
+    let original_white_level = white_level(&raw_image);
     let original_black_level = raw_image
         .blacklevel
         .levels
@@ -476,7 +479,11 @@ pub fn develop_raw_image(
                     b = srgb_to_linear(b.max(0.0));
                 }
 
-                let (rec_r, rec_g, rec_b) = recover_clipped_pixel(r, g, b);
+                let (rec_r, rec_g, rec_b) = if is_floating_point {
+                    (r, g, b)
+                } else {
+                    recover_clipped_pixel(r, g, b)
+                };
                 let recovered = Vec3::new(rec_r, rec_g, rec_b);
                 let rgb = uncalibrated_to_working.map_or(recovered, |matrix| matrix * recovered);
 
@@ -657,6 +664,7 @@ pub fn read_as_shot(file_bytes: &[u8]) -> Option<AsShot> {
             file_bytes,
             is_monochrome,
         ),
+        source_peak: 1.0,
     })
 }
 
@@ -787,7 +795,7 @@ mod tests {
     }
 
     fn develop(file: &[u8]) -> Rgb32FImage {
-        develop_raw_image(file, false, 1.0, "linear".into(), 0.0, 0.0, None)
+        develop_raw_image(file, false, 1.0, "linear".into(), 0.0, 0.0, false, None)
             .unwrap()
             .into_rgb32f()
     }

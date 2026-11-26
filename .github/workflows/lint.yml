@@ -6,10 +6,9 @@ on:
       - main
   pull_request:
 
-# A newer push to the same branch or PR makes an older run's result irrelevant.
 concurrency:
-  group: lint-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Third-party actions are pinned to full commit SHAs (version in the trailing
 # comment) so a moved tag cannot change what runs here. Every job only reads
@@ -19,7 +18,7 @@ permissions:
 
 jobs:
   frontend-lint:
-    name: Frontend Lint & Format
+    name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -59,8 +58,10 @@ jobs:
           components: rustfmt
           rustflags: ''
           rust-src-dir: src-tauri
+          cache: false
 
-      - name: Check formatting
+      - name: cargo fmt
+        if: ${{ !cancelled() }}
         working-directory: src-tauri
         run: cargo fmt -p RapidRAW -- --check
 
@@ -76,6 +77,7 @@ jobs:
           components: clippy
           rustflags: ''
           rust-src-dir: src-tauri
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install system dependencies
         run: |
