@@ -1,19 +1,13 @@
-//! Maps parsed Camera Raw settings onto RapidRAW adjustments.
-
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::library::ProfileIndex;
+use super::import::ProfileIndex;
 use super::xmp::{Correction, CrsDoc, Curve, MaskDef, parse_number};
 use crate::decode::white_balance::{MIRED_PER_RELATIVE_UNIT, TINT_PER_RELATIVE_UNIT};
 use crate::library::presets::Preset;
 
-/// Key carried in a converted preset when Lightroom would run Auto Tone on apply.
-/// The frontend resolves it against the open image and never stores it.
 pub const AUTO_TONE_KEY: &str = "presetAutoTone";
-/// The same marker as written by earlier builds of the importer.
-pub const LEGACY_AUTO_TONE_KEY: &str = "lightroomAutoTone";
 
 type Settings = HashMap<String, String>;
 
@@ -41,9 +35,6 @@ const COLORS: [(&str, &str); 8] = [
     ("Magenta", "magentas"),
 ];
 
-// ---------------------------------------------------------------------------
-// Curves
-
 fn identity_curve() -> Curve {
     vec![(0.0, 0.0), (255.0, 255.0)]
 }
@@ -52,7 +43,6 @@ fn is_identity(curve: &Curve) -> bool {
     curve.iter().all(|(x, y)| (x - y).abs() < 0.5)
 }
 
-/// RapidRAW's renderer carries at most this many points per curve.
 const MAX_CURVE_POINTS: usize = 16;
 
 fn curve_json(curve: &Curve) -> Value {
@@ -71,7 +61,6 @@ fn curve_json(curve: &Curve) -> Value {
     )
 }
 
-/// Monotone cubic (Fritsch-Carlson) evaluation over 0..255 control points.
 fn eval_curve(curve: &Curve, x: f64) -> f64 {
     let mut pts = curve.clone();
     pts.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -141,7 +130,6 @@ fn sample_curve(curve: &Curve) -> Curve {
     sample_points(|x| eval_curve(curve, x))
 }
 
-/// `outer(inner(x))`, sampled so RapidRAW's point curve can carry it.
 fn compose_curves(outer: &Curve, inner: &Curve) -> Curve {
     sample_points(|x| eval_curve(outer, eval_curve(inner, x)))
 }
@@ -165,26 +153,21 @@ struct Parametric {
 }
 
 impl Parametric {
-    fn from_settings(s: &Settings) -> Option<Self> {
+    fn from_settings(s: &Settings, look_shadows: f64) -> Option<Self> {
         let keys = [
             "ParametricShadows",
             "ParametricDarks",
             "ParametricLights",
             "ParametricHighlights",
-            LOOK_PARAMETRIC_SHADOWS,
         ];
-        if !keys.iter().any(|k| s.contains_key(*k)) {
+        if look_shadows == 0.0 && !keys.iter().any(|k| s.contains_key(*k)) {
             return None;
         }
-        // RapidRAW's shadow region lifts far harder than Lightroom's; fitted against Camera Raw.
         let lift = |v: f64, scale: f64| if v > 0.0 { v * scale } else { v };
         let shadows = lift(
             num(s, "ParametricShadows").unwrap_or(0.0),
             PARAMETRIC_SHADOW_LIFT_SCALE,
-        ) + lift(
-            num(s, LOOK_PARAMETRIC_SHADOWS).unwrap_or(0.0),
-            LOOK_SHADOW_LIFT_SCALE,
-        );
+        ) + lift(look_shadows, LOOK_SHADOW_LIFT_SCALE);
         Some(Self {
             shadows,
             darks: num(s, "ParametricDarks").unwrap_or(0.0),
@@ -202,8 +185,6 @@ impl Parametric {
             .all(|v| v.abs() < 1e-6)
     }
 
-    /// Mirrors `buildParametricPoints` in the curves panel so the generated
-    /// points match what the parametric editor would produce.
     fn points(&self) -> Curve {
         let (s1, s2, s3) = (
             self.split1 / 100.0,
@@ -269,12 +250,17 @@ fn point_curve(curves: &HashMap<String, Curve>, keys: &[&str]) -> Option<Curve> 
     keys.iter().find_map(|k| curves.get(*k).cloned())
 }
 
-fn apply_curves(s: &Settings, curves: &HashMap<String, Curve>, adj: &mut Map<String, Value>) {
+fn apply_curves(
+    s: &Settings,
+    curves: &HashMap<String, Curve>,
+    look_shadows: f64,
+    adj: &mut Map<String, Value>,
+) {
     let luma = point_curve(curves, &["ToneCurvePV2012", "ToneCurve"]);
     let red = point_curve(curves, &["ToneCurvePV2012Red", "ToneCurveRed"]);
     let green = point_curve(curves, &["ToneCurvePV2012Green", "ToneCurveGreen"]);
     let blue = point_curve(curves, &["ToneCurvePV2012Blue", "ToneCurveBlue"]);
-    let parametric = Parametric::from_settings(s);
+    let parametric = Parametric::from_settings(s, look_shadows);
 
     if luma.is_none() && red.is_none() && green.is_none() && blue.is_none() && parametric.is_none()
     {
@@ -334,9 +320,6 @@ fn apply_curves(s: &Settings, curves: &HashMap<String, Curve>, adj: &mut Map<Str
     adj.insert("parametricCurve".into(), Value::Object(parametric_obj));
     adj.insert("curveMode".into(), json!(mode));
 }
-
-// ---------------------------------------------------------------------------
-// Profiles (looks)
 
 const LOOK_ADDITIVE: [&str; 32] = [
     "Exposure2012",
@@ -408,15 +391,14 @@ const CURVE_KEYS: [&str; 4] = [
     "ToneCurvePV2012Blue",
 ];
 
-/// Camera Raw applies a look's settings underneath the user's sliders, scaled
-/// by the look amount. RapidRAW has no separate layer, so fold them in.
 fn merge_look(
     settings: &mut Settings,
     curves: &mut HashMap<String, Curve>,
     profile: &CrsDoc,
     amount: f64,
-) {
+) -> f64 {
     let original = settings.clone();
+    let mut look_shadows = 0.0;
     for (hue_key, sat_key) in LOOK_HUES {
         let preset_sat = num(&original, sat_key).unwrap_or(0.0);
         if preset_sat.abs() < 1e-6
@@ -429,13 +411,7 @@ fn merge_look(
         let additive = LOOK_ADDITIVE.contains(&key.as_str())
             || LOOK_ADDITIVE_PREFIXES.iter().any(|p| key.starts_with(p));
         if key == "ParametricShadows" {
-            // Kept apart from the preset's own value: the two lift on different scales.
-            if let Some(v) = parse_number(value) {
-                settings.insert(
-                    LOOK_PARAMETRIC_SHADOWS.into(),
-                    round(v * amount).to_string(),
-                );
-            }
+            look_shadows = parse_number(value).map_or(0.0, |v| round(v * amount));
         } else if additive {
             if let Some(v) = parse_number(value) {
                 let base = num(&original, key).unwrap_or(0.0);
@@ -447,8 +423,6 @@ fn merge_look(
     }
     for key in CURVE_KEYS {
         if let Some(profile_curve) = profile.curves.get(key) {
-            // Older presets keep their curve under the pre-2012 key; compose it rather than letting
-            // the profile's curve shadow it.
             let legacy = key.replace("PV2012", "");
             if !curves.contains_key(key)
                 && let Some(old) = curves.remove(&legacy)
@@ -465,6 +439,7 @@ fn merge_look(
             curves.insert(key.into(), merged);
         }
     }
+    look_shadows
 }
 
 fn reset_lut(adj: &mut Map<String, Value>) {
@@ -476,23 +451,9 @@ fn reset_lut(adj: &mut Map<String, Value>) {
     adj.insert("lutIsSceneReferred".into(), json!(false));
 }
 
-// ---------------------------------------------------------------------------
-// Global settings
-
-/// Lightroom's post-crop vignette, fitted against Camera Raw renders. Lightroom darkens roughly
-/// with the cube of `1 + amount` in linear light, places its midpoint far further out than
-/// RapidRAW's radius (pushed out again for rectangular shapes), and brightens toward white in
-/// gamma space where RapidRAW blends in linear light.
-// Slider strengths fitted against Camera Raw renders of each slider at -50/+50 (exposure at
-// -1/+1 EV): RapidRAW's tone sliders act much harder than Lightroom's at the same value.
 const EXPOSURE_SCALE: f64 = 0.75;
 const PARAMETRIC_SHADOW_LIFT_SCALE: f64 = 0.2;
-/// A profile's own shadow lift is not damped like a preset's: its tables darken the shadows it
-/// lifts (Film-Inspired 11), and Camera Raw renders match at full strength.
 const LOOK_SHADOW_LIFT_SCALE: f64 = 1.0;
-const LOOK_PARAMETRIC_SHADOWS: &str = "__LookParametricShadows";
-/// Camera calibration sliders, fitted against Camera Raw one slider at a time. Lightroom's
-/// primary hue sliders rotate hue far less than RapidRAW's, and its shadow tint is stronger.
 const CALIBRATION_SLIDERS: [(&str, &str, f64); 7] = [
     ("ShadowTint", "shadowsTint", 3.0),
     ("RedHue", "redHue", 0.25),
@@ -502,9 +463,7 @@ const CALIBRATION_SLIDERS: [(&str, &str, f64); 7] = [
     ("BlueHue", "blueHue", 0.1),
     ("BlueSaturation", "blueSaturation", 1.25),
 ];
-/// Lightroom's toning fades toward black; RapidRAW's tint does the same below this lightness
-/// (fitted against Camera Raw on the graded presets).
-const GRADING_BLACK_HOLD: f64 = 0.5;
+const GRADING_BLACK_HOLD: f64 = 50.0;
 const VIBRANCE_GAIN_SCALE: f64 = 0.5;
 const MIDTONE_LUMINANCE_SCALE: f64 = 0.5;
 const CALIBRATED_SLIDERS: [(&str, &str, f64); 8] = [
@@ -530,7 +489,6 @@ fn apply_vignette(s: &Settings, adj: &mut Map<String, Value>) {
     let rr_amount = if amount < 0.0 {
         (1.0 + amount).powi(3) - 1.0
     } else {
-        // Match Lightroom's gamma-space lift at a typical dark corner (linear 0.05).
         let (corner, gamma) = (0.05_f64, 2.2_f64);
         let g = corner.powf(1.0 / gamma);
         (((g + amount * (1.0 - g)).powf(gamma) - corner) / (1.0 - corner)).clamp(0.0, 1.0)
@@ -555,7 +513,12 @@ fn apply_vignette(s: &Settings, adj: &mut Map<String, Value>) {
     );
 }
 
-fn apply_globals(s: &Settings, curves: &HashMap<String, Curve>, adj: &mut Map<String, Value>) {
+fn apply_globals(
+    s: &Settings,
+    curves: &HashMap<String, Curve>,
+    look_shadows: f64,
+    adj: &mut Map<String, Value>,
+) {
     for (xmp_key, rr_key, scale) in CALIBRATED_SLIDERS {
         if let Some(v) = num(s, xmp_key) {
             adj.insert(
@@ -734,15 +697,12 @@ fn apply_globals(s: &Settings, curves: &HashMap<String, Curve>, adj: &mut Map<St
         adj.insert("colorCalibration".into(), Value::Object(cal));
     }
 
-    apply_curves(s, curves, adj);
+    apply_curves(s, curves, look_shadows, adj);
 
     if is_true(s, "AutoTone") == Some(true) {
         adj.insert(AUTO_TONE_KEY.into(), json!(true));
     }
 }
-
-// ---------------------------------------------------------------------------
-// Lens blur
 
 fn apply_lens_blur(blur: &Settings, adj: &mut Map<String, Value>) {
     let active = is_true(blur, "Active").unwrap_or(true);
@@ -770,8 +730,6 @@ fn apply_lens_blur(blur: &Settings, adj: &mut Map<String, Value>) {
     adj.insert("lensBlurShape".into(), json!(rr_shape));
     adj.insert("lensBlurDiffusion".into(), json!(0));
 
-    // Lightroom's focal range runs near (0) to far (100); RapidRAW depth runs
-    // far (0) to near (100). The default range means "focus on the subject".
     let range: Vec<f64> = blur
         .get("FocalRange")
         .map(|r| r.split_whitespace().filter_map(parse_number).collect())
@@ -781,9 +739,10 @@ fn apply_lens_blur(blur: &Settings, adj: &mut Map<String, Value>) {
             (100.0 - c, 100.0 - b, (d - c).max(1.0), (b - a).max(1.0))
         }
         _ => {
-            // No focal range: Lightroom focuses on the subject. The editor measures it on apply;
-            // until then keep the near half sharp.
-            adj.insert(super::focus::SUBJECT_FOCUS_KEY.into(), json!(true));
+            adj.insert(
+                crate::ai::lens_blur_focus::SUBJECT_FOCUS_KEY.into(),
+                json!(true),
+            );
             (50.0, 100.0, 12.0, 12.0)
         }
     };
@@ -792,9 +751,6 @@ fn apply_lens_blur(blur: &Settings, adj: &mut Map<String, Value>) {
     adj.insert("lensBlurMinFade".into(), json!(round(min_fade)));
     adj.insert("lensBlurMaxFade".into(), json!(round(max_fade)));
 }
-
-// ---------------------------------------------------------------------------
-// Masks
 
 fn default_mask_adjustments() -> Value {
     let zero = json!({ "hue": 0, "saturation": 0, "luminance": 0 });
@@ -805,7 +761,7 @@ fn default_mask_adjustments() -> Value {
         "brightness": 0,
         "clarity": 0,
         "colorGrading": {
-            "balance": 0, "blending": 50,
+            "balance": 0, "blackHold": 0, "blending": 50,
             "global": zero, "highlights": zero, "midtones": zero, "shadows": zero,
         },
         "colorNoiseReduction": 0,
@@ -850,7 +806,6 @@ fn mask_adjustments(correction: &Correction) -> Value {
     let amount = num(p, "CorrectionAmount").unwrap_or(1.0);
     let mut adj = default_mask_adjustments();
 
-    // Local sliders are stored as -1..1 (exposure as stops / 4).
     let local = [
         (
             "LocalExposure2012",
@@ -887,7 +842,6 @@ fn mask_adjustments(correction: &Correction) -> Value {
             adj[rr_key] = json!(round((v * scale * amount).clamp(lo, hi)));
         }
     }
-    // Legacy (PV2010) local exposure is in stops.
     if adj["exposure"] == json!(0)
         && let Some(v) = num(p, "LocalExposure")
         && v != 0.0
@@ -967,19 +921,17 @@ fn mask_target(mask: &MaskDef) -> Option<MaskTarget> {
 
 fn sub_mask(
     kind: &str,
-    name: &str,
     mode: &str,
     invert: bool,
     opacity: f64,
     visible: bool,
     mut parameters: Value,
 ) -> Value {
-    // Lightroom leaves an adaptive mask empty when there is no sky, face or subject; it never errors.
     parameters[crate::ai::jobs::QUIET_NO_RESULT_KEY] = json!(true);
     json!({
         "id": Uuid::new_v4().to_string(),
         "type": kind,
-        "name": name,
+        "name": "",
         "mode": mode,
         "invert": invert,
         "opacity": round(opacity),
@@ -995,17 +947,12 @@ fn build_sub_masks(correction: &Correction) -> Vec<Value> {
         let p = &mask.props;
         let blend = num(p, "MaskBlendMode").unwrap_or(0.0) as i64;
         let Some(target) = mask_target(mask) else {
-            // Brushes, gradients and range masks have no equivalent. Leaving out an added area only
-            // narrows the correction; leaving out an intersected or subtracted one changes what it
-            // covers, so the whole correction is dropped instead.
             if blend == 1 {
                 return Vec::new();
             }
             skipped = true;
             continue;
         };
-        // The first mask always adds. One that intersects or subtracts after a skipped mask
-        // would turn into an added area covering the opposite of what the preset meant.
         if out.is_empty() && skipped && blend == 1 {
             return Vec::new();
         }
@@ -1021,10 +968,8 @@ fn build_sub_masks(correction: &Correction) -> Vec<Value> {
         let value = match target {
             MaskTarget::Foreground { invert: inv } => {
                 invert ^= inv;
-                let name = if inv { "Background" } else { "Subject" };
                 sub_mask(
                     "ai-foreground",
-                    name,
                     mode,
                     invert,
                     opacity,
@@ -1032,10 +977,9 @@ fn build_sub_masks(correction: &Correction) -> Vec<Value> {
                     json!({ "maskDataBase64": null, "grow": 0, "feather": 0 }),
                 )
             }
-            MaskTarget::Sky => sub_mask("ai-sky", "Sky", mode, invert, opacity, visible, json!({})),
+            MaskTarget::Sky => sub_mask("ai-sky", mode, invert, opacity, visible, json!({})),
             MaskTarget::Text(prompt) => sub_mask(
                 "ai-text",
-                prompt,
                 mode,
                 invert,
                 opacity,
@@ -1043,7 +987,6 @@ fn build_sub_masks(correction: &Correction) -> Vec<Value> {
                 json!({ "maskDataBase64": null, "prompt": prompt, "grow": 0, "feather": 0 }),
             ),
             MaskTarget::Face(part) => {
-                // Additive face parts in a row become one face mask.
                 if mode == "additive"
                     && !invert
                     && let Some(prev) = out.last_mut()
@@ -1059,7 +1002,6 @@ fn build_sub_masks(correction: &Correction) -> Vec<Value> {
                 }
                 sub_mask(
                     "ai-face",
-                    "People",
                     mode,
                     invert,
                     opacity,
@@ -1104,11 +1046,8 @@ fn build_masks(doc: &CrsDoc) -> Vec<Value> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-
 pub struct Conversion {
     pub preset: Preset,
-    /// Look name that could not be resolved to an installed profile.
     pub missing_profile: Option<String>,
 }
 
@@ -1118,8 +1057,8 @@ pub fn convert(doc: &CrsDoc, profiles: Option<&ProfileIndex>) -> Conversion {
     let mut adjustments = Map::new();
     let mut missing_profile = None;
     let mut lut: Option<(String, String, f64)> = None;
+    let mut look_shadows = 0.0;
 
-    // `<crs:Look crs:Name=""/>` clears the look rather than naming one.
     let named_look = doc.look.as_ref().filter(|l| {
         l.uuid.is_some()
             || l.parameters.is_some()
@@ -1132,8 +1071,7 @@ pub fn convert(doc: &CrsDoc, profiles: Option<&ProfileIndex>) -> Conversion {
             .or_else(|| profiles.and_then(|p| p.find(look)));
         match resolved {
             Some(profile) => {
-                merge_look(&mut settings, &mut curves, profile, look.amount);
-                // A look stored inline may leave its color tables out; the installed profile has them.
+                look_shadows = merge_look(&mut settings, &mut curves, profile, look.amount);
                 let baked = profiles.and_then(|index| {
                     index.lut_for(profile).or_else(|| {
                         look.parameters
@@ -1160,17 +1098,16 @@ pub fn convert(doc: &CrsDoc, profiles: Option<&ProfileIndex>) -> Conversion {
         }
     }
 
-    apply_globals(&settings, &curves, &mut adjustments);
+    apply_globals(&settings, &curves, look_shadows, &mut adjustments);
 
     if let Some((path, name, amount)) = lut {
         adjustments.insert("lutPath".into(), json!(path));
         adjustments.insert("lutName".into(), json!(name));
         adjustments.insert("lutData".into(), Value::Null);
-        adjustments.insert("lutSize".into(), json!(super::library::LUT_SIZE));
+        adjustments.insert("lutSize".into(), json!(super::import::LUT_SIZE));
         adjustments.insert("lutIntensity".into(), json!(round(amount * 100.0)));
         adjustments.insert("lutIsSceneReferred".into(), json!(false));
     } else if doc.look.is_some() || settings.contains_key("CameraProfile") {
-        // Choosing a profile in Lightroom replaces whatever look was active.
         reset_lut(&mut adjustments);
     }
 
@@ -1224,7 +1161,6 @@ mod tests {
         ))
         .unwrap();
         let adj = convert(&doc, None).preset.adjustments;
-        // Calibrated against Camera Raw: exposure x0.75, shadows x0.3, texture x0.5.
         assert_eq!(adj["exposure"], json!(0.375));
         assert_eq!(adj["shadows"], json!(6.0));
         assert_eq!(adj["structure"], json!(-5.0));
@@ -1321,19 +1257,16 @@ mod tests {
         let add_subject =
             r#"<rdf:li crs:What="Mask/Image" crs:MaskSubType="1" crs:MaskBlendMode="0"/>"#;
         let intersect_range = r#"<rdf:li crs:What="Mask/RangeMask" crs:MaskBlendMode="1"/>"#;
-        // Gradient minus subject would become "subject only".
         assert!(
             masks_of(&format!("{gradient}{subtract_subject}"))
                 .get("masks")
                 .is_none()
         );
-        // Subject within a luminance range would widen to the whole subject.
         assert!(
             masks_of(&format!("{add_subject}{intersect_range}"))
                 .get("masks")
                 .is_none()
         );
-        // Gradient plus subject only narrows to the subject.
         let kept = masks_of(&format!("{gradient}{add_subject}"));
         assert_eq!(
             kept["masks"][0]["subMasks"][0]["type"],
@@ -1353,7 +1286,6 @@ mod tests {
         let mut settings = Settings::new();
         merge_look(&mut settings, &mut curves, &profile, 1.0);
         let merged = &curves["ToneCurvePV2012"];
-        // The preset's lifted black survives under the profile's lowered white.
         assert!(eval_curve(merged, 0.0) > 30.0, "{:?}", merged);
         assert!(eval_curve(merged, 255.0) < 240.0, "{:?}", merged);
     }
@@ -1408,9 +1340,8 @@ mod tests {
         .unwrap();
         let mut settings: Settings = [("ParametricShadows".to_string(), "50".to_string())].into();
         let mut curves = HashMap::new();
-        merge_look(&mut settings, &mut curves, &profile, 1.0);
-        // The preset's lift is damped (50 * 0.2); the profile's is not.
-        let p = Parametric::from_settings(&settings).unwrap();
+        let look_shadows = merge_look(&mut settings, &mut curves, &profile, 1.0);
+        let p = Parametric::from_settings(&settings, look_shadows).unwrap();
         assert!((p.shadows - 30.0).abs() < 1e-6, "{}", p.shadows);
     }
 

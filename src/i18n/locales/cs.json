@@ -36,6 +36,7 @@
       "colorMixer": "Míchání barev",
       "grading": {
         "balance": "Vyvážení",
+        "blackHold": "Zachování černé",
         "blending": "Míchání",
         "global": "Globální",
         "highlights": "Světla",
@@ -986,7 +987,10 @@
       "toasts": {
         "importFailed": "Import souboru {{fileName}} se nezdařil: {{error}}",
         "lightroomFailed": "Import předvoleb Lightroomu se nezdařil: {{error}}",
-        "lightroomImported": "Importováno {{presets}} předvoleb Lightroomu ve {{groups}} skupinách",
+        "lightroomImported_one": "Importována {{count}} předvolba Lightroomu",
+        "lightroomImported_few": "Importovány {{count}} předvolby Lightroomu",
+        "lightroomImported_many": "Importováno {{count}} předvolby Lightroomu",
+        "lightroomImported_other": "Importováno {{count}} předvoleb Lightroomu",
         "lightroomMissingProfiles": "Některé profily Lightroomu nebyly nalezeny: {{profiles}}",
         "lightroomNoPresetsInFolder": "V této složce nebyly nalezeny žádné předvolby Lightroomu.",
         "lightroomNotFound": "Předvolby Lightroomu nebyly automaticky nalezeny. Vyberte složku Settings aplikace Camera Raw."

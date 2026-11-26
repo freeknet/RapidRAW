@@ -27,8 +27,7 @@ const MAX_ATTEMPTS: u32 = 3;
 const SOURCE_ID_SAMPLE_BYTES: u64 = 64 * 1024;
 const MASK_DATA_KEYS: [&str; 2] = ["maskDataBase64", "mask_data_base64"];
 const AI_SOURCE_KEY: &str = "aiSource";
-/// Sub-masks from imported presets set this so a missing subject (no sky, no face) stays silent.
-pub const QUIET_NO_RESULT_KEY: &str = "quietNoResult";
+pub(crate) const QUIET_NO_RESULT_KEY: &str = "quietNoResult";
 const TEXT_PROMPT_KEY: &str = "prompt";
 const FACE_PARTS_KEY: &str = "parts";
 const SUBJECT_BOX_KEYS: [&str; 4] = ["startX", "startY", "endX", "endY"];

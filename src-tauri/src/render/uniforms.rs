@@ -146,7 +146,6 @@ pub struct GlobalAdjustments {
     pub wb_lms_to_rgb_matrix: GpuMat3,
 
     pub source_peak: f32,
-    /// Lightness below which the grading tint fades toward black (0 keeps the tint everywhere).
     pub color_grading_black_hold: f32,
     _pad_cg3: f32,
     _pad_cg4: f32,
@@ -218,7 +217,7 @@ pub struct MaskAdjustments {
     pub color_grading_global: ColorGradeSettings,
     pub color_grading_blending: f32,
     pub color_grading_balance: f32,
-    _pad5: f32,
+    pub color_grading_black_hold: f32,
     _pad6: f32,
 
     pub hsl: [HslColor; 8],
@@ -287,6 +286,7 @@ struct AdjustmentScales {
     color_grading_luminance: f32,
     color_grading_blending: f32,
     color_grading_balance: f32,
+    color_grading_black_hold: f32,
 
     color_calibration_hue: f32,
     color_calibration_saturation: f32,
@@ -337,6 +337,7 @@ const SCALES: AdjustmentScales = AdjustmentScales {
     color_grading_luminance: 1000.0,
     color_grading_blending: 100.0,
     color_grading_balance: 200.0,
+    color_grading_black_hold: 100.0,
 
     color_calibration_hue: 400.0,
     color_calibration_saturation: 120.0,
@@ -505,9 +506,6 @@ fn parse_monochrome_settings(
         _pad3: 0.0,
     }
 }
-
-/// The shader holds this many points per curve; a longer count would read past the array.
-const MAX_CURVE_POINTS: usize = 16;
 
 fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point; 16] {
     let mut aligned_points = [Point::default(); 16];
@@ -799,7 +797,7 @@ fn get_global_adjustments_from_json(
 
         source_peak,
         color_grading_black_hold: if color_grading_visible {
-            cg_obj["blackHold"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0) as f32
+            cg_obj["blackHold"].as_f64().unwrap_or(0.0) as f32 / SCALES.color_grading_black_hold
         } else {
             0.0
         },
@@ -849,10 +847,10 @@ fn get_global_adjustments_from_json(
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
         blue_curve: convert_points_to_aligned(blue_points.clone()),
-        luma_curve_count: luma_points.len().min(MAX_CURVE_POINTS) as u32,
-        red_curve_count: red_points.len().min(MAX_CURVE_POINTS) as u32,
-        green_curve_count: green_points.len().min(MAX_CURVE_POINTS) as u32,
-        blue_curve_count: blue_points.len().min(MAX_CURVE_POINTS) as u32,
+        luma_curve_count: luma_points.len() as u32,
+        red_curve_count: red_points.len() as u32,
+        green_curve_count: green_points.len() as u32,
+        blue_curve_count: blue_points.len() as u32,
         vignette_frame: [0.0; 4],
 
         glow_amount: get_val("creative", "glowAmount", SCALES.glow, None),
@@ -1004,7 +1002,11 @@ fn get_mask_adjustments_from_json(
         } else {
             0.0
         },
-        _pad5: 0.0,
+        color_grading_black_hold: if color_grading_visible {
+            cg_obj["blackHold"].as_f64().unwrap_or(0.0) as f32 / SCALES.color_grading_black_hold
+        } else {
+            0.0
+        },
         _pad6: 0.0,
 
         hsl: if color_mixer_visible {
@@ -1016,10 +1018,10 @@ fn get_mask_adjustments_from_json(
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
         blue_curve: convert_points_to_aligned(blue_points.clone()),
-        luma_curve_count: luma_points.len().min(MAX_CURVE_POINTS) as u32,
-        red_curve_count: red_points.len().min(MAX_CURVE_POINTS) as u32,
-        green_curve_count: green_points.len().min(MAX_CURVE_POINTS) as u32,
-        blue_curve_count: blue_points.len().min(MAX_CURVE_POINTS) as u32,
+        luma_curve_count: luma_points.len() as u32,
+        red_curve_count: red_points.len() as u32,
+        green_curve_count: green_points.len() as u32,
+        blue_curve_count: blue_points.len() as u32,
         _pad_end4: 0.0,
         _pad_end5: 0.0,
         _pad_end6: 0.0,

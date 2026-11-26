@@ -36,6 +36,7 @@
       "colorMixer": "Spalvų maišiklis",
       "grading": {
         "balance": "Balansas",
+        "blackHold": "Juodos išlaikymas",
         "blending": "Suliejimas",
         "global": "Bendras",
         "highlights": "Šviesios sritys",
@@ -1025,7 +1026,10 @@
       "toasts": {
         "importFailed": "Nepavyko importuoti {{fileName}}: {{error}}",
         "lightroomFailed": "Nepavyko importuoti „Lightroom“ išankstinių nustatymų: {{error}}",
-        "lightroomImported": "Importuota „Lightroom“ išankstinių nustatymų: {{presets}}, grupių: {{groups}}",
+        "lightroomImported_one": "Importuota „Lightroom“ išankstinių nustatymų: {{count}}",
+        "lightroomImported_few": "Importuota „Lightroom“ išankstinių nustatymų: {{count}}",
+        "lightroomImported_many": "Importuota „Lightroom“ išankstinių nustatymų: {{count}}",
+        "lightroomImported_other": "Importuota „Lightroom“ išankstinių nustatymų: {{count}}",
         "lightroomMissingProfiles": "Kai kurie „Lightroom“ profiliai nerasti: {{profiles}}",
         "lightroomNoPresetsInFolder": "Šiame aplanke „Lightroom“ išankstinių nustatymų nerasta.",
         "lightroomNotFound": "„Lightroom“ išankstiniai nustatymai nerasti automatiškai. Pasirinkite „Camera Raw“ aplanką „Settings“."

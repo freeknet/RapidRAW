@@ -1,10 +1,5 @@
-//! Parses Camera Raw / Lightroom settings XMP (presets and profiles) into a
-//! small model the converter can query, independent of how the RDF happens to
-//! be serialized (attributes vs. child elements, `rdf:li` vs. nested
-//! `rdf:Description`).
-
 use quick_xml::Reader;
-use quick_xml::escape::unescape;
+use quick_xml::escape::{resolve_predefined_entity, unescape};
 use quick_xml::events::{BytesStart, Event};
 use std::collections::HashMap;
 
@@ -32,9 +27,6 @@ impl Node {
         self.children.iter().find_map(|c| c.find(name))
     }
 
-    /// Attributes and simple-valued child properties of an RDF resource node,
-    /// merging in a nested `rdf:Description` when the resource is written that
-    /// way. Keys keep only their local name for the `crs:` namespace.
     fn resource_props(&self) -> HashMap<String, String> {
         let mut props = HashMap::new();
         collect_props(self, &mut props);
@@ -44,7 +36,6 @@ impl Node {
         props
     }
 
-    /// Children of a resource node, looking through a nested `rdf:Description`.
     fn resource_children(&self) -> Vec<&Node> {
         let mut out: Vec<&Node> = Vec::new();
         for c in &self.children {
@@ -106,25 +97,6 @@ fn element_from(e: &BytesStart) -> Node {
     }
 }
 
-fn general_ref(name: &str) -> String {
-    match name {
-        "amp" => "&".into(),
-        "lt" => "<".into(),
-        "gt" => ">".into(),
-        "quot" => "\"".into(),
-        "apos" => "'".into(),
-        _ => {
-            let num = name
-                .strip_prefix("#x")
-                .and_then(|h| u32::from_str_radix(h, 16).ok())
-                .or_else(|| name.strip_prefix('#').and_then(|d| d.parse().ok()));
-            num.and_then(char::from_u32)
-                .map(|c| c.to_string())
-                .unwrap_or_default()
-        }
-    }
-}
-
 pub fn parse_tree(xml: &str) -> Result<Node, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
@@ -163,8 +135,13 @@ pub fn parse_tree(xml: &str) -> Result<Node, String> {
             }
             Ok(Event::GeneralRef(r)) => {
                 if let Some(cur) = stack.last_mut() {
-                    cur.text
-                        .push_str(&general_ref(&String::from_utf8_lossy(&r)));
+                    if let Ok(Some(c)) = r.resolve_char_ref() {
+                        cur.text.push(c);
+                    } else if let Some(text) =
+                        resolve_predefined_entity(&String::from_utf8_lossy(&r))
+                    {
+                        cur.text.push_str(text);
+                    }
                 }
             }
             Ok(Event::Eof) => break,
@@ -187,7 +164,6 @@ pub struct LookRef {
     pub name: Option<String>,
     pub uuid: Option<String>,
     pub amount: f64,
-    /// Inline profile settings for looks that are not stubbed.
     pub parameters: Option<Box<CrsDoc>>,
 }
 
@@ -298,7 +274,6 @@ fn collect_masks(node: &Node, masks: &mut Vec<MaskDef>) {
             {
                 masks.push(MaskDef { props });
             }
-            // Nested mask groups keep their members as children.
             collect_masks(c, masks);
         }
     }
@@ -385,7 +360,6 @@ pub fn parse_crs(xml: &str) -> Result<CrsDoc, String> {
     Ok(doc_from_description(desc))
 }
 
-/// The top-level `rdf:Description` that carries the `crs` namespace.
 fn find_settings_description(node: &Node) -> Option<&Node> {
     if node.name == "rdf:Description"
         && (node

@@ -36,6 +36,7 @@
       "colorMixer": "Farbmischer",
       "grading": {
         "balance": "Abgleich",
+        "blackHold": "Schwarz halten",
         "blending": "Mischen",
         "global": "Global",
         "highlights": "Lichter",
@@ -936,7 +937,8 @@
       "toasts": {
         "importFailed": "Import von {{fileName}} fehlgeschlagen: {{error}}",
         "lightroomFailed": "Lightroom-Vorgaben konnten nicht importiert werden: {{error}}",
-        "lightroomImported": "{{presets}} Lightroom-Vorgaben in {{groups}} Gruppen importiert",
+        "lightroomImported_one": "{{count}} Lightroom-Vorgabe importiert",
+        "lightroomImported_other": "{{count}} Lightroom-Vorgaben importiert",
         "lightroomMissingProfiles": "Einige Lightroom-Profile wurden nicht gefunden: {{profiles}}",
         "lightroomNoPresetsInFolder": "In diesem Ordner wurden keine Lightroom-Vorgaben gefunden.",
         "lightroomNotFound": "Lightroom-Vorgaben wurden nicht automatisch gefunden. Wähle den Camera-Raw-Ordner „Settings“ aus."

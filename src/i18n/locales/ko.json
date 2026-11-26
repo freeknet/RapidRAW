@@ -36,6 +36,7 @@
       "colorMixer": "컬러 믹서",
       "grading": {
         "balance": "밸런스",
+        "blackHold": "검정 유지",
         "blending": "블렌딩",
         "global": "전체",
         "highlights": "하이라이트",
@@ -933,7 +934,8 @@
       "toasts": {
         "importFailed": "{{fileName}} 가져오기 실패: {{error}}",
         "lightroomFailed": "Lightroom 사전 설정을 가져오지 못했습니다: {{error}}",
-        "lightroomImported": "Lightroom 사전 설정 {{presets}}개를 {{groups}}개 그룹으로 가져왔습니다",
+        "lightroomImported_one": "Lightroom 사전 설정 {{count}}개를 가져왔습니다",
+        "lightroomImported_other": "Lightroom 사전 설정 {{count}}개를 가져왔습니다",
         "lightroomMissingProfiles": "일부 Lightroom 프로필을 찾을 수 없습니다: {{profiles}}",
         "lightroomNoPresetsInFolder": "해당 폴더에서 Lightroom 사전 설정을 찾을 수 없습니다.",
         "lightroomNotFound": "Lightroom 사전 설정을 자동으로 찾지 못했습니다. Camera Raw Settings 폴더를 선택하세요."

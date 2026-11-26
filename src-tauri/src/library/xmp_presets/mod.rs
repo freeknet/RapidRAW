@@ -1,16 +1,11 @@
-//! Import of Lightroom / Camera Raw presets, including the profiles (looks)
-//! they reference and their AI masks, from the user's own Adobe install.
-
-pub mod convert;
-pub mod focus;
-pub mod library;
-pub mod tables;
-pub mod xmp;
+mod convert;
+pub mod import;
+mod tables;
+mod xmp;
 
 use crate::library::presets::Preset;
-use library::ProfileIndex;
+use import::ProfileIndex;
 
-/// Converts one XMP preset. Looks resolve against `profiles` when given.
 pub fn convert_xmp_to_preset(
     xmp_content: &str,
     profiles: Option<&ProfileIndex>,

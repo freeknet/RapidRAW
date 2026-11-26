@@ -525,7 +525,7 @@ fn preset_file_display_name(file_path: &str) -> String {
         .unwrap_or_else(|| file_path.to_string())
 }
 
-fn collect_top_level_preset_names(items: &[PresetItem]) -> HashSet<String> {
+pub(crate) fn collect_top_level_preset_names(items: &[PresetItem]) -> HashSet<String> {
     items
         .iter()
         .map(|item| match item {
@@ -579,10 +579,19 @@ fn parse_preset_file(file_path: &str, app_handle: &AppHandle) -> Result<Vec<Pres
         content
     };
 
-    // Only Lightroom files need the installed profiles, and indexing them scans the Adobe install.
-    let profiles = xmp_presets::library::shared_profile_index(app_handle);
+    let profiles = xmp_presets::import::shared_profile_index(app_handle);
     let converted_preset = xmp_presets::convert_xmp_to_preset(&xmp_content, Some(&profiles))?;
     Ok(vec![PresetItem::Preset(converted_preset)])
+}
+
+pub(crate) fn unique_name(name: &str, taken_names: &HashSet<String>) -> String {
+    let mut new_name = name.to_string();
+    let mut counter = 1;
+    while taken_names.contains(&new_name) {
+        new_name = format!("{} ({})", name, counter);
+        counter += 1;
+    }
+    new_name
 }
 
 fn merge_imported_items(
@@ -605,12 +614,7 @@ fn merge_imported_items(
             }
         };
 
-        let mut new_name = original_name.clone();
-        let mut counter = 1;
-        while taken_names.contains(&new_name) {
-            new_name = format!("{} ({})", original_name, counter);
-            counter += 1;
-        }
+        let new_name = unique_name(&original_name, taken_names);
 
         match &mut imported_item {
             PresetItem::Preset(p) => p.name = new_name.clone(),
@@ -636,7 +640,6 @@ fn import_preset_file_into_library(
     Ok(current_presets)
 }
 
-// Imports run off the main thread: converting Lightroom files may index the Adobe install and bake LUTs.
 #[tauri::command]
 pub async fn handle_import_presets_from_file(
     file_path: String,

@@ -581,12 +581,12 @@ pub(crate) async fn export_images_impl(
                             .map_err(|e| {
                                 format!("Failed to generate AI results for export: {}", e)
                             })?;
-                            if crate::library::xmp_presets::focus::wants_subject_focus(&adj) {
+                            if crate::ai::lens_blur_focus::wants_subject_focus(&adj) {
                                 let base = crate::ai::jobs::decode_source(
                                     &app_handle_clone,
                                     &source_path,
                                 )?;
-                                crate::library::xmp_presets::focus::resolve_subject_focus(
+                                crate::ai::lens_blur_focus::resolve_subject_focus(
                                     &app_handle_clone,
                                     &base,
                                     is_raw,

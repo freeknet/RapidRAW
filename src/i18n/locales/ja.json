@@ -36,6 +36,7 @@
       "colorMixer": "カラーミキサー",
       "grading": {
         "balance": "バランス",
+        "blackHold": "黒の保持",
         "blending": "ブレンド",
         "global": "グローバル",
         "highlights": "ハイライト",
@@ -933,7 +934,8 @@
       "toasts": {
         "importFailed": "{{fileName}} のインポートに失敗しました: {{error}}",
         "lightroomFailed": "Lightroom プリセットを読み込めませんでした: {{error}}",
-        "lightroomImported": "{{groups}} 個のグループに {{presets}} 個の Lightroom プリセットを読み込みました",
+        "lightroomImported_one": "{{count}} 個の Lightroom プリセットを読み込みました",
+        "lightroomImported_other": "{{count}} 個の Lightroom プリセットを読み込みました",
         "lightroomMissingProfiles": "一部の Lightroom プロファイルが見つかりませんでした: {{profiles}}",
         "lightroomNoPresetsInFolder": "このフォルダーに Lightroom プリセットはありません。",
         "lightroomNotFound": "Lightroom プリセットが自動で見つかりませんでした。Camera Raw の Settings フォルダーを選択してください。"

@@ -172,7 +172,7 @@ struct MaskAdjustments {
     color_grading_global: ColorGradeSettings,
     color_grading_blending: f32,
     color_grading_balance: f32,
-    _pad5: f32,
+    color_grading_black_hold: f32,
     _pad6: f32,
 
     hsl: array<HslColor, 8>,
@@ -1079,7 +1079,6 @@ fn apply_color_grading(color: vec3<f32>, shadows: ColorGradeSettings, midtones: 
     let tint_regions = color_grade_regions(lightness, feather, balance);
     let luminance_regions = color_grade_regions(lightness, max(feather, CG_LUMINANCE_FEATHER_MIN), balance);
 
-    // With a black hold the tint scales with lightness below it, so blacks stay neutral.
     let hold = select(1.0, clamp(lightness / black_hold, 0.0, 1.0), black_hold > 0.0);
     let tint = (vec2<f32>(shadows.tint_a, shadows.tint_b) * tint_regions.x
         + vec2<f32>(midtones.tint_a, midtones.tint_b) * tint_regions.y
@@ -2317,7 +2316,7 @@ fn main(
             let m = adjustments.mask_adjustments[i];
             let mask_graded = apply_color_grading(
                 composite_rgb_linear,
-                m.color_grading_shadows, m.color_grading_midtones, m.color_grading_highlights, m.color_grading_global, m.color_grading_blending, m.color_grading_balance, 0.0
+                m.color_grading_shadows, m.color_grading_midtones, m.color_grading_highlights, m.color_grading_global, m.color_grading_blending, m.color_grading_balance, m.color_grading_black_hold
             );
             composite_rgb_linear = mix(composite_rgb_linear, mask_graded, influence);
         }

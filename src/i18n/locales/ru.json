@@ -36,6 +36,7 @@
       "colorMixer": "Смешение цветов",
       "grading": {
         "balance": "Баланс",
+        "blackHold": "Сохранение чёрного",
         "blending": "Смешивание",
         "global": "Глобально",
         "highlights": "Света",
@@ -986,7 +987,10 @@
       "toasts": {
         "importFailed": "Не удалось импортировать {{fileName}}: {{error}}",
         "lightroomFailed": "Не удалось импортировать пресеты Lightroom: {{error}}",
-        "lightroomImported": "Импортировано пресетов Lightroom: {{presets}}, групп: {{groups}}",
+        "lightroomImported_one": "Импортировано пресетов Lightroom: {{count}}",
+        "lightroomImported_few": "Импортировано пресетов Lightroom: {{count}}",
+        "lightroomImported_many": "Импортировано пресетов Lightroom: {{count}}",
+        "lightroomImported_other": "Импортировано пресетов Lightroom: {{count}}",
         "lightroomMissingProfiles": "Некоторые профили Lightroom не найдены: {{profiles}}",
         "lightroomNoPresetsInFolder": "В этой папке нет пресетов Lightroom.",
         "lightroomNotFound": "Пресеты Lightroom не найдены автоматически. Выберите папку Settings программы Camera Raw."

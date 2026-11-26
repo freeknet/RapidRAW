@@ -13,12 +13,10 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-toastify';
 import {
-  getPresetMarkers,
   PresetImportFailure,
   PresetListType,
   usePresets,
   UserPreset,
-  withoutPresetMarkers,
   XmpImportResult,
 } from '../../../hooks/usePresets';
 import { useContextMenu } from '../../../context/ContextMenuContext';
@@ -56,10 +54,14 @@ import Slider from '../../ui/Slider';
 import { TextColors, TextVariants, TextWeights } from '../../../types/typography';
 import {
   Adjustments,
+  BasicAdjustment,
+  Effect,
   INITIAL_ADJUSTMENTS,
   ADJUSTMENT_GROUPS,
   MaskContainer,
+  getPresetMarkers,
   mergeActiveTools,
+  withoutPresetMarkers,
 } from '../../../utils/adjustments';
 import { cameraDisplayName, getDefaultAdjustments, isSameCamera } from '../../../utils/developDefaults';
 import { useSettingsStore } from '../../../store/useSettingsStore';
@@ -178,8 +180,20 @@ function PreviewImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-const LENS_BLUR_FOCUS_KEYS = ['lensBlurMinDepth', 'lensBlurMaxDepth', 'lensBlurMinFade', 'lensBlurMaxFade'];
-const AUTO_TONE_KEYS = ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'];
+const LENS_BLUR_FOCUS_KEYS = [
+  Effect.LensBlurMinDepth,
+  Effect.LensBlurMaxDepth,
+  Effect.LensBlurMinFade,
+  Effect.LensBlurMaxFade,
+];
+const AUTO_TONE_KEYS = [
+  BasicAdjustment.Exposure,
+  BasicAdjustment.Contrast,
+  BasicAdjustment.Highlights,
+  BasicAdjustment.Shadows,
+  BasicAdjustment.Whites,
+  BasicAdjustment.Blacks,
+];
 
 const itemVariants = {
   hidden: { opacity: 0, x: -15 },
@@ -653,7 +667,6 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
   const isProcessingQueue = useRef(false);
   const currentImagePathRef = useRef<string | null>(selectedImage?.path || null);
   const hiddenPresetMasks = useRef<Array<MaskContainer> | null>(null);
-  // The preset whose slow image effects (auto tone, subject focus) may still land, and the auto tone it got.
   const appliedPresetRef = useRef<string | null>(null);
   const autoToneRef = useRef<{ presetId: string; values: Partial<Adjustments> } | null>(null);
 
@@ -971,7 +984,6 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
     async (presetId: string, presetAdjustments: Partial<Adjustments>, autoTone: boolean, subjectFocus: boolean) => {
       const path = useEditorStore.getState().selectedImage?.path;
       if (!path) return;
-      // Drop results once the user moved on to another image or reverted or replaced this preset.
       const isCurrent = () =>
         useEditorStore.getState().selectedImage?.path === path && appliedPresetRef.current === presetId;
 
@@ -981,7 +993,6 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
             jsAdjustments: useEditorStore.getState().adjustments,
           });
           if (!isCurrent()) return;
-          // Lightroom's Auto Tone only sets the basic tone sliders.
           const tone = Object.fromEntries(
             AUTO_TONE_KEYS.filter((key) => auto[key] !== undefined).map((key) => [key, auto[key]]),
           );
@@ -1014,18 +1025,12 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
 
       if (subjectFocus) {
         try {
-          const focus = await invoke<Partial<Adjustments> | null>(Invokes.PresetSubjectFocus, {
+          const focus = await invoke<Partial<Adjustments> | null>(Invokes.CalculateLensBlurFocus, {
             depthMap,
             jsAdjustments: useEditorStore.getState().adjustments,
           });
           if (!isCurrent() || !focus) return;
-          setAdjustments((prev: Adjustments) => ({
-            ...prev,
-            lensBlurMinDepth: focus.minDepth,
-            lensBlurMaxDepth: focus.maxDepth,
-            lensBlurMinFade: focus.minFade,
-            lensBlurMaxFade: focus.maxFade,
-          }));
+          setAdjustments((prev: Adjustments) => ({ ...prev, ...focus }));
         } catch (err) {
           console.error('Failed to focus preset lens blur on the subject:', err);
         }
@@ -1083,10 +1088,8 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
       setPresetIntensity(intensity);
       const { subjectFocus } = getPresetMarkers(preset.adjustments);
       const { masks: presetMasks, ...presetAdjustments } = withoutPresetMarkers(preset.adjustments);
-      // Auto tone is part of what the preset did, so it scales with the rest.
       const autoTone = autoToneRef.current?.presetId === preset.id ? autoToneRef.current.values : {};
       const mixed = mixAdjustments({ ...presetAdjustments, ...autoTone }, intensity, getDefaultAdjustments());
-      // Keep the focus measured on this image rather than the preset's placeholder range.
       if (subjectFocus) LENS_BLUR_FOCUS_KEYS.forEach((key) => delete mixed[key]);
 
       if (presetMasks !== undefined) {
@@ -1268,41 +1271,34 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
   const reportXmpImport = (result: XmpImportResult) => {
     setFolderPreviewsGenerated(new Set<string>());
     setPreviews({});
-    toast.success(t('editor.presets.toasts.lightroomImported', { presets: result.imported, groups: result.groups }));
+    toast.success(t('editor.presets.toasts.lightroomImported', { count: result.imported }));
     if (result.missingProfiles.length > 0) {
       toast.warn(t('editor.presets.toasts.lightroomMissingProfiles', { profiles: result.missingProfiles.join(', ') }));
     }
     result.failures.forEach((failure: PresetImportFailure) => {
       console.error(`Failed to import ${failure.fileName}: ${failure.error}`);
+      toast.error(t('editor.presets.toasts.importFailed', { fileName: failure.fileName, error: failure.error }));
     });
   };
 
   const handleImportXmpPresets = async () => {
     try {
-      reportXmpImport(await importXmpPresets());
-      return;
-    } catch (error) {
-      const message = String(error);
-      if (message !== 'NO_ADOBE_INSTALL' && message !== 'NO_XMP_PRESETS') {
-        console.error('Failed to import Lightroom presets:', error);
-        toast.error(t('editor.presets.toasts.lightroomFailed', { error: message }));
+      const installed = await importXmpPresets();
+      if (installed) {
+        reportXmpImport(installed);
         return;
       }
-    }
-
-    toast.info(t('editor.presets.toasts.lightroomNotFound'));
-    try {
+      toast.info(t('editor.presets.toasts.lightroomNotFound'));
       const folder = await openDialog({ directory: true, title: t('editor.presets.dialog.lightroomFolderTitle') });
       if (!folder || Array.isArray(folder)) return;
-      reportXmpImport(await importXmpPresets([folder]));
+      const picked = await importXmpPresets([folder]);
+      if (picked) {
+        reportXmpImport(picked);
+      } else {
+        toast.error(t('editor.presets.toasts.lightroomNoPresetsInFolder'));
+      }
     } catch (error) {
-      const message = String(error);
-      console.error('Failed to import Lightroom presets:', error);
-      toast.error(
-        message === 'NO_XMP_PRESETS'
-          ? t('editor.presets.toasts.lightroomNoPresetsInFolder')
-          : t('editor.presets.toasts.lightroomFailed', { error: message }),
-      );
+      toast.error(t('editor.presets.toasts.lightroomFailed', { error: String(error) }));
     }
   };
 
@@ -1651,7 +1647,6 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
                         isActive={item.preset?.id === activePresetId}
                         intensity={item.preset?.id === activePresetId ? presetIntensity : 100}
                         onIntensityChange={(val) => handleIntensityChange(item.preset as Preset, val)}
-                        onDragStateChange={handleDragStateChange}
                       />
                     </motion.div>
                   ))}

@@ -36,6 +36,7 @@
       "colorMixer": "Kleurenmixer",
       "grading": {
         "balance": "Balans",
+        "blackHold": "Zwart behouden",
         "blending": "Menging",
         "global": "Globaal",
         "highlights": "Hooglichten",
@@ -936,7 +937,8 @@
       "toasts": {
         "importFailed": "Importeren van {{fileName}} mislukt: {{error}}",
         "lightroomFailed": "Lightroom-voorinstellingen importeren mislukt: {{error}}",
-        "lightroomImported": "{{presets}} Lightroom-voorinstellingen geïmporteerd in {{groups}} groepen",
+        "lightroomImported_one": "{{count}} Lightroom-voorinstelling geïmporteerd",
+        "lightroomImported_other": "{{count}} Lightroom-voorinstellingen geïmporteerd",
         "lightroomMissingProfiles": "Sommige Lightroom-profielen zijn niet gevonden: {{profiles}}",
         "lightroomNoPresetsInFolder": "Geen Lightroom-voorinstellingen gevonden in die map.",
         "lightroomNotFound": "Lightroom-voorinstellingen zijn niet automatisch gevonden. Selecteer de Camera Raw-map Settings."

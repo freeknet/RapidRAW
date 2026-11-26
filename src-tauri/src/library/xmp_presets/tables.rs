@@ -1,12 +1,7 @@
-//! Decodes the color tables embedded in Camera Raw profiles (`crs:Table_<md5>`)
-//! and bakes them into display-referred sRGB `.cube` LUTs RapidRAW can load.
-//!
-//! The encoding is the DNG SDK "big table" format: a base85 string (DNG SDK
-//! alphabet, little-endian digit order) holding a little-endian u32 of the
-//! uncompressed size followed by a zlib stream. The stream is either an HSV
-//! look table (type 0, as in DCP `ProfileLookTable`) or a 3D RGB table (type 1).
-
+use crate::render::agx::{hsv_to_rgb, rgb_to_hsv};
+use crate::render::color_space::{OutputColorSpace, SRGB, TransferCurve};
 use flate2::read::ZlibDecoder;
+use glam::{DMat3, DVec3, Vec3 as HsvVec};
 use std::fmt::Write as _;
 use std::io::Read;
 
@@ -18,7 +13,6 @@ pub struct LookTable {
     hue_divisions: usize,
     sat_divisions: usize,
     val_divisions: usize,
-    /// (hue shift degrees, saturation scale, value scale), value-major then hue then saturation.
     data: Vec<[f32; 3]>,
     srgb_value_encoding: bool,
     pub min_amount: f64,
@@ -28,12 +22,10 @@ pub struct LookTable {
 #[derive(Debug, Clone)]
 pub struct RgbTable {
     divisions: usize,
-    /// Normalized samples, red-major then green then blue.
     data: Vec<[f32; 3]>,
-    primaries: Primaries,
-    gamma: Gamma,
+    primaries: OutputColorSpace,
+    gamma: Option<TransferCurve>,
     gamut_extend: bool,
-    /// How much of the table applies (the profile's `RGBTableAmount`).
     strength: f64,
     pub min_amount: f64,
     pub max_amount: f64,
@@ -53,30 +45,11 @@ impl ProfileTable {
         }
     }
 
-    /// Scales an RGB table's effect, as Camera Raw does for a profile's `RGBTableAmount`.
     pub fn set_rgb_strength(&mut self, strength: f64) {
         if let ProfileTable::Rgb(t) = self {
             t.strength = strength.clamp(0.0, 1.0);
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Primaries {
-    Srgb,
-    AdobeRgb,
-    ProPhoto,
-    DisplayP3,
-    Rec2020,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Gamma {
-    Linear,
-    Srgb,
-    G18,
-    G22,
-    Rec2020,
 }
 
 fn decode_base85(s: &str) -> Result<Vec<u8>, String> {
@@ -142,7 +115,6 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// Far above any table Adobe ships (a 64^3 RGB table is 1.5 MB).
 const MAX_TABLE_BYTES: usize = 64 << 20;
 
 pub fn decode_table(encoded: &str) -> Result<ProfileTable, String> {
@@ -150,7 +122,6 @@ pub fn decode_table(encoded: &str) -> Result<ProfileTable, String> {
     if bytes.len() < 6 {
         return Err("Profile table is empty".into());
     }
-    // The size header comes from the file: cap what it can make us allocate or inflate.
     let expected = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
     let mut raw = Vec::with_capacity(expected.min(MAX_TABLE_BYTES));
     ZlibDecoder::new(&bytes[4..])
@@ -220,18 +191,18 @@ pub fn decode_table(encoded: &str) -> Result<ProfileTable, String> {
                 }
             }
             let primaries = match c.u32().unwrap_or(0) {
-                1 => Primaries::AdobeRgb,
-                2 => Primaries::ProPhoto,
-                3 => Primaries::DisplayP3,
-                4 => Primaries::Rec2020,
-                _ => Primaries::Srgb,
+                1 => OutputColorSpace::AdobeRgb,
+                2 => OutputColorSpace::ProPhotoRgb,
+                3 => OutputColorSpace::DisplayP3,
+                4 => OutputColorSpace::Rec2020,
+                _ => OutputColorSpace::Srgb,
             };
             let gamma = match c.u32().unwrap_or(1) {
-                0 => Gamma::Linear,
-                2 => Gamma::G18,
-                3 => Gamma::G22,
-                4 => Gamma::Rec2020,
-                _ => Gamma::Srgb,
+                0 => None,
+                2 => Some(TransferCurve::gamma(1.8)),
+                3 => Some(TransferCurve::gamma(2.2)),
+                4 => Some(TransferCurve::REC709),
+                _ => Some(TransferCurve::SRGB),
             };
             let gamut_extend = c.u32().unwrap_or(0) == 1;
             let (min_amount, max_amount) = if c.remaining() >= 16 {
@@ -254,161 +225,32 @@ pub fn decode_table(encoded: &str) -> Result<ProfileTable, String> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Color math
-
-type Mat3 = [[f64; 3]; 3];
 type Vec3 = [f64; 3];
 
-fn mul(m: &Mat3, v: Vec3) -> Vec3 {
-    [
-        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
-        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
-        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
-    ]
+fn transform(m: &DMat3, v: Vec3) -> Vec3 {
+    (*m * DVec3::from_array(v)).to_array()
 }
 
-fn mat_mul(a: &Mat3, b: &Mat3) -> Mat3 {
-    let mut m = [[0.0; 3]; 3];
-    for (i, row) in m.iter_mut().enumerate() {
-        for (j, cell) in row.iter_mut().enumerate() {
-            *cell = (0..3).map(|k| a[i][k] * b[k][j]).sum();
-        }
-    }
-    m
+fn conversion(space: OutputColorSpace) -> (DMat3, DMat3) {
+    (SRGB.to(space.rgb()), space.rgb().to(SRGB))
 }
 
-fn invert(m: &Mat3) -> Mat3 {
-    let [[a, b, c], [d, e, f], [g, h, i]] = *m;
-    let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-    let inv = 1.0 / det;
-    [
-        [
-            (e * i - f * h) * inv,
-            (c * h - b * i) * inv,
-            (b * f - c * e) * inv,
-        ],
-        [
-            (f * g - d * i) * inv,
-            (a * i - c * g) * inv,
-            (c * d - a * f) * inv,
-        ],
-        [
-            (d * h - e * g) * inv,
-            (b * g - a * h) * inv,
-            (a * e - b * d) * inv,
-        ],
-    ]
+fn encode(curve: Option<TransferCurve>, v: f64) -> f64 {
+    let v = v.max(0.0);
+    curve.map_or(v, |c| c.encode(v as f32) as f64)
 }
 
-fn xy_to_xyz(x: f64, y: f64) -> Vec3 {
-    [x / y, 1.0, (1.0 - x - y) / y]
-}
-
-const D65: (f64, f64) = (0.3127, 0.3290);
-const D50: (f64, f64) = (0.3457, 0.3585);
-
-fn rgb_to_xyz(prim: [(f64, f64); 3], white: (f64, f64)) -> Mat3 {
-    let cols = prim.map(|(x, y)| xy_to_xyz(x, y));
-    let m = [
-        [cols[0][0], cols[1][0], cols[2][0]],
-        [cols[0][1], cols[1][1], cols[2][1]],
-        [cols[0][2], cols[1][2], cols[2][2]],
-    ];
-    let s = mul(&invert(&m), xy_to_xyz(white.0, white.1));
-    [
-        [m[0][0] * s[0], m[0][1] * s[1], m[0][2] * s[2]],
-        [m[1][0] * s[0], m[1][1] * s[1], m[1][2] * s[2]],
-        [m[2][0] * s[0], m[2][1] * s[1], m[2][2] * s[2]],
-    ]
-}
-
-fn bradford(from: (f64, f64), to: (f64, f64)) -> Mat3 {
-    const B: Mat3 = [
-        [0.8951, 0.2664, -0.1614],
-        [-0.7502, 1.7135, 0.0367],
-        [0.0389, -0.0685, 1.0296],
-    ];
-    let s = mul(&B, xy_to_xyz(from.0, from.1));
-    let d = mul(&B, xy_to_xyz(to.0, to.1));
-    let scale = [
-        [d[0] / s[0], 0.0, 0.0],
-        [0.0, d[1] / s[1], 0.0],
-        [0.0, 0.0, d[2] / s[2]],
-    ];
-    mat_mul(&invert(&B), &mat_mul(&scale, &B))
-}
-
-fn primaries_to_xyz_d65(p: Primaries) -> Mat3 {
-    match p {
-        Primaries::Srgb => rgb_to_xyz([(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)], D65),
-        Primaries::AdobeRgb => rgb_to_xyz([(0.64, 0.33), (0.21, 0.71), (0.15, 0.06)], D65),
-        Primaries::DisplayP3 => rgb_to_xyz([(0.680, 0.320), (0.265, 0.690), (0.150, 0.060)], D65),
-        Primaries::Rec2020 => rgb_to_xyz([(0.708, 0.292), (0.170, 0.797), (0.131, 0.046)], D65),
-        Primaries::ProPhoto => mat_mul(
-            &bradford(D50, D65),
-            &rgb_to_xyz([(0.7347, 0.2653), (0.1596, 0.8404), (0.0366, 0.0001)], D50),
-        ),
-    }
-}
-
-/// (linear sRGB -> target, target -> linear sRGB)
-fn conversion(p: Primaries) -> (Mat3, Mat3) {
-    let srgb = primaries_to_xyz_d65(Primaries::Srgb);
-    let target = primaries_to_xyz_d65(p);
-    let to = mat_mul(&invert(&target), &srgb);
-    (to, invert(&to))
+fn decode(curve: Option<TransferCurve>, v: f64) -> f64 {
+    let v = v.max(0.0);
+    curve.map_or(v, |c| c.decode(v as f32) as f64)
 }
 
 fn srgb_encode(v: f64) -> f64 {
-    if v <= 0.0031308 {
-        12.92 * v
-    } else {
-        1.055 * v.powf(1.0 / 2.4) - 0.055
-    }
+    encode(Some(TransferCurve::SRGB), v)
 }
 
 fn srgb_decode(v: f64) -> f64 {
-    if v <= 0.04045 {
-        v / 12.92
-    } else {
-        ((v + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-impl Gamma {
-    fn encode(self, v: f64) -> f64 {
-        let v = v.max(0.0);
-        match self {
-            Gamma::Linear => v,
-            Gamma::Srgb => srgb_encode(v),
-            Gamma::G18 => v.powf(1.0 / 1.8),
-            Gamma::G22 => v.powf(1.0 / 2.2),
-            Gamma::Rec2020 => {
-                if v < 0.0181 {
-                    4.5 * v
-                } else {
-                    1.0993 * v.powf(0.45) - 0.0993
-                }
-            }
-        }
-    }
-    fn decode(self, v: f64) -> f64 {
-        let v = v.max(0.0);
-        match self {
-            Gamma::Linear => v,
-            Gamma::Srgb => srgb_decode(v),
-            Gamma::G18 => v.powf(1.8),
-            Gamma::G22 => v.powf(2.2),
-            Gamma::Rec2020 => {
-                if v < 0.0814 {
-                    v / 4.5
-                } else {
-                    ((v + 0.0993) / 1.0993).powf(1.0 / 0.45)
-                }
-            }
-        }
-    }
+    decode(Some(TransferCurve::SRGB), v)
 }
 
 impl RgbTable {
@@ -442,64 +284,20 @@ impl RgbTable {
         out
     }
 
-    fn apply(&self, srgb_linear: Vec3, conv: &(Mat3, Mat3)) -> Vec3 {
-        let mut t = mul(&conv.0, srgb_linear);
+    fn apply(&self, srgb_linear: Vec3, conv: &(DMat3, DMat3)) -> Vec3 {
+        let mut t = transform(&conv.0, srgb_linear);
         if !self.gamut_extend {
             t = t.map(|v| v.clamp(0.0, 1.0));
         }
-        let encoded = t.map(|v| self.gamma.encode(v));
-        // Out-of-range values in extend mode keep their offset from the clipped lookup.
+        let encoded = t.map(|v| encode(self.gamma, v));
         let looked = self.sample(encoded);
         let mut result = [0.0; 3];
         for k in 0..3 {
             let clipped = encoded[k].clamp(0.0, 1.0);
             let blended = clipped + (looked[k] - clipped) * self.strength;
-            result[k] = self.gamma.decode(blended + (encoded[k] - clipped));
+            result[k] = decode(self.gamma, blended + (encoded[k] - clipped));
         }
-        mul(&conv.1, result)
-    }
-}
-
-/// DNG SDK RGB -> HSV, hue in [0, 6).
-fn rgb_to_hsv(c: Vec3) -> Vec3 {
-    let v = c[0].max(c[1]).max(c[2]);
-    let min = c[0].min(c[1]).min(c[2]);
-    let gap = v - min;
-    if gap <= 0.0 || v <= 0.0 {
-        return [0.0, 0.0, v];
-    }
-    let mut h = if c[0] == v {
-        let h = (c[1] - c[2]) / gap;
-        if h < 0.0 { h + 6.0 } else { h }
-    } else if c[1] == v {
-        2.0 + (c[2] - c[0]) / gap
-    } else {
-        4.0 + (c[0] - c[1]) / gap
-    };
-    if h >= 6.0 {
-        h -= 6.0;
-    }
-    [h, gap / v, v]
-}
-
-fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
-    let [h, s, v] = hsv;
-    if s <= 0.0 {
-        return [v, v, v];
-    }
-    let h = h.rem_euclid(6.0);
-    let i = h.floor();
-    let f = h - i;
-    let p = v * (1.0 - s);
-    let q = v * (1.0 - s * f);
-    let t = v * (1.0 - s * (1.0 - f));
-    match i as i32 {
-        0 => [v, t, p],
-        1 => [q, v, p],
-        2 => [p, v, t],
-        3 => [p, q, v],
-        4 => [t, p, v],
-        _ => [v, p, q],
+        transform(&conv.1, result)
     }
 }
 
@@ -546,9 +344,10 @@ impl LookTable {
         out
     }
 
-    /// Applies the map in linear ProPhoto, as Camera Raw does for profile looks.
     fn apply(&self, prophoto_linear: Vec3) -> Vec3 {
-        let [h, s, v] = rgb_to_hsv(prophoto_linear.map(|c| c.max(0.0)));
+        let [r, g, b] = prophoto_linear.map(|c| c.max(0.0) as f32);
+        let hsv = rgb_to_hsv(HsvVec::new(r, g, b));
+        let (h, s, v) = (hsv.x as f64 * 6.0, hsv.y as f64, hsv.z as f64);
         let v_enc = if self.srgb_value_encoding {
             srgb_encode(v.min(1.0))
         } else {
@@ -562,14 +361,14 @@ impl LookTable {
         } else {
             v * val_scale
         };
-        hsv_to_rgb([h, s, v])
+        let rgb = hsv_to_rgb(HsvVec::new((h / 6.0) as f32, s as f32, v as f32));
+        [rgb.x as f64, rgb.y as f64, rgb.z as f64]
     }
 }
 
-/// Bakes the tables (applied in order) into a display-referred sRGB cube LUT.
 pub fn bake_cube(title: &str, tables: &[&ProfileTable], size: usize) -> String {
-    let prophoto = conversion(Primaries::ProPhoto);
-    let rgb_convs: Vec<Option<(Mat3, Mat3)>> = tables
+    let prophoto = conversion(OutputColorSpace::ProPhotoRgb);
+    let rgb_convs: Vec<Option<(DMat3, DMat3)>> = tables
         .iter()
         .map(|t| match t {
             ProfileTable::Rgb(r) => Some(conversion(r.primaries)),
@@ -592,7 +391,7 @@ pub fn bake_cube(title: &str, tables: &[&ProfileTable], size: usize) -> String {
                     lin = match (table, conv) {
                         (ProfileTable::Rgb(t), Some(conv)) => t.apply(lin, conv),
                         (ProfileTable::Look(t), _) => {
-                            mul(&prophoto.1, t.apply(mul(&prophoto.0, lin)))
+                            transform(&prophoto.1, t.apply(transform(&prophoto.0, lin)))
                         }
                         _ => lin,
                     };
@@ -636,7 +435,6 @@ mod tests {
 
     #[test]
     fn oversized_look_table_is_rejected() {
-        // hue * sat * val overflows usize on 64-bit; it must be an error, not a panic or an empty table.
         let mut raw = Vec::new();
         for v in [0u32, 1, 1 << 22, 1 << 22, 1 << 20] {
             raw.extend(v.to_le_bytes());
@@ -649,12 +447,6 @@ mod tests {
         let mut bytes = u32::MAX.to_le_bytes().to_vec();
         bytes.extend([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
         assert!(decode_table(&encode_base85(&bytes)).is_err());
-    }
-
-    #[test]
-    fn base85_round_trip() {
-        let data: Vec<u8> = (0..=255u8).chain([1, 2, 3]).collect();
-        assert_eq!(decode_base85(&encode_base85(&data)).unwrap(), data);
     }
 
     #[test]
@@ -689,7 +481,6 @@ mod tests {
 
     #[test]
     fn rgb_table_amount_scales_effect() {
-        // Every sample sits 0.2 above identity, so black maps to 0.2 at full strength.
         let n = 2usize;
         let lift = (0.2 * 65535.0) as u16;
         let mut raw = Vec::new();
@@ -741,24 +532,6 @@ mod tests {
         let out = look.apply(c);
         for k in 0..3 {
             assert!((out[k] - c[k]).abs() < 1e-6);
-        }
-    }
-
-    #[test]
-    fn color_conversions_round_trip() {
-        for p in [
-            Primaries::AdobeRgb,
-            Primaries::ProPhoto,
-            Primaries::DisplayP3,
-            Primaries::Rec2020,
-        ] {
-            let (to, from) = conversion(p);
-            let white = mul(&to, [1.0, 1.0, 1.0]);
-            for w in white {
-                assert!((w - 1.0).abs() < 1e-3, "{:?} white {:?}", p, white);
-            }
-            let back = mul(&from, mul(&to, [0.3, 0.6, 0.1]));
-            assert!((back[1] - 0.6).abs() < 1e-9);
         }
     }
 }

@@ -36,6 +36,7 @@
       "colorMixer": "Misturador de Cores",
       "grading": {
         "balance": "Balanço",
+        "blackHold": "Preservar pretos",
         "blending": "Mesclagem",
         "global": "Global",
         "highlights": "Realces",
@@ -961,7 +962,9 @@
       "toasts": {
         "importFailed": "Falha ao importar {{fileName}}: {{error}}",
         "lightroomFailed": "Falha ao importar as predefinições do Lightroom: {{error}}",
-        "lightroomImported": "{{presets}} predefinições do Lightroom importadas em {{groups}} grupos",
+        "lightroomImported_one": "{{count}} predefinição do Lightroom importada",
+        "lightroomImported_many": "{{count}} de predefinições do Lightroom importadas",
+        "lightroomImported_other": "{{count}} predefinições do Lightroom importadas",
         "lightroomMissingProfiles": "Alguns perfis do Lightroom não foram encontrados: {{profiles}}",
         "lightroomNoPresetsInFolder": "Nenhuma predefinição do Lightroom encontrada nessa pasta.",
         "lightroomNotFound": "As predefinições do Lightroom não foram encontradas automaticamente. Selecione a pasta Settings do Camera Raw."

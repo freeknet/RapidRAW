@@ -36,6 +36,7 @@
       "colorMixer": "Color Mixer",
       "grading": {
         "balance": "Balance",
+        "blackHold": "Black Hold",
         "blending": "Blending",
         "global": "Global",
         "highlights": "Highlights",
@@ -936,7 +937,8 @@
       "toasts": {
         "importFailed": "Failed to import {{fileName}}: {{error}}",
         "lightroomFailed": "Failed to import Lightroom presets: {{error}}",
-        "lightroomImported": "Imported {{presets}} Lightroom presets in {{groups}} groups",
+        "lightroomImported_one": "Imported {{count}} Lightroom preset",
+        "lightroomImported_other": "Imported {{count}} Lightroom presets",
         "lightroomMissingProfiles": "Some Lightroom profiles were not found: {{profiles}}",
         "lightroomNoPresetsInFolder": "No Lightroom presets were found in that folder.",
         "lightroomNotFound": "Lightroom presets were not found automatically. Select the Camera Raw Settings folder."

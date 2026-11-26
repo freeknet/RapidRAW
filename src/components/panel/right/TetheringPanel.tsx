@@ -36,7 +36,8 @@ import { getDefaultAdjustmentsFor } from '../../../utils/developDefaults';
 import { Preset, type OverlayMode } from '../../../types/editor';
 import { useLibraryStore } from '../../../store/useLibraryStore';
 import { useEditorStore } from '../../../store/useEditorStore';
-import { usePresets, withoutPresetMarkers } from '../../../hooks/usePresets';
+import { usePresets } from '../../../hooks/usePresets';
+import { withoutPresetMarkers } from '../../../utils/adjustments';
 import { useContextMenu } from '../../../context/ContextMenuContext';
 
 import CompositionOverlays from '../editor/overlays/CompositionOverlays';

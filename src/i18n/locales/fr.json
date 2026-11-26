@@ -36,6 +36,7 @@
       "colorMixer": "Mélangeur de couleurs",
       "grading": {
         "balance": "Balance",
+        "blackHold": "Préservation des noirs",
         "blending": "Mélange",
         "global": "Global",
         "highlights": "Hautes lumières",
@@ -961,7 +962,9 @@
       "toasts": {
         "importFailed": "Échec de l'importation de {{fileName}} : {{error}}",
         "lightroomFailed": "Échec de l’importation des paramètres prédéfinis Lightroom : {{error}}",
-        "lightroomImported": "{{presets}} paramètres prédéfinis Lightroom importés dans {{groups}} groupes",
+        "lightroomImported_one": "{{count}} paramètre prédéfini Lightroom importé",
+        "lightroomImported_many": "{{count}} de paramètres prédéfinis Lightroom importés",
+        "lightroomImported_other": "{{count}} paramètres prédéfinis Lightroom importés",
         "lightroomMissingProfiles": "Certains profils Lightroom sont introuvables : {{profiles}}",
         "lightroomNoPresetsInFolder": "Aucun paramètre prédéfini Lightroom trouvé dans ce dossier.",
         "lightroomNotFound": "Les paramètres prédéfinis Lightroom n’ont pas été trouvés automatiquement. Sélectionnez le dossier Settings de Camera Raw."

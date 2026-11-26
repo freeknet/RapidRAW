@@ -36,6 +36,7 @@
       "colorMixer": "颜色混合器",
       "grading": {
         "balance": "平衡",
+        "blackHold": "黑色保留",
         "blending": "混合",
         "global": "全局",
         "highlights": "高光",
@@ -933,7 +934,8 @@
       "toasts": {
         "importFailed": "导入 {{fileName}} 失败: {{error}}",
         "lightroomFailed": "导入 Lightroom 预设失败：{{error}}",
-        "lightroomImported": "已导入 {{presets}} 个 Lightroom 预设，共 {{groups}} 个分组",
+        "lightroomImported_one": "已导入 {{count}} 个 Lightroom 预设",
+        "lightroomImported_other": "已导入 {{count}} 个 Lightroom 预设",
         "lightroomMissingProfiles": "未找到部分 Lightroom 配置文件：{{profiles}}",
         "lightroomNoPresetsInFolder": "该文件夹中没有 Lightroom 预设。",
         "lightroomNotFound": "未能自动找到 Lightroom 预设。请选择 Camera Raw 的 Settings 文件夹。"
